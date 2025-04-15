@@ -1,0 +1,72 @@
+# Django #
+*.log
+*.pot
+*.pyc
+__pycache__/
+*.py[cod]
+*$py.class
+logs/
+
+# Virtual Environments #
+.venv310/
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE specific files #
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Sensitive information #
+chatbot/api_key.py
+**/api_key.*
+**/secrets.*
+*.pem
+*.key
+*.env
+
+# Distribution / packaging #
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Local development settings #
+local_settings.py
+
+# Deployment scripts with sensitive info #
+# Keep the scripts directory but consider ignoring sensitive scripts
+# scripts/deploy_script.sh
+
+# OS generated files #
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Static files collected in production (consider excluding) #
+# staticfiles/
+
+# Node modules if you use any JS preprocessing #
+node_modules/

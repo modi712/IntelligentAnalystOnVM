@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chatbot Interface</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intelligent Analyst</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 16px;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        @keyframes fadeIn {
+            0% { opacity: 0; transform: translateY(-20px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body class="w-full min-h-screen bg-gradient-to-b from-gray-100 to-gray-300 p-4 md:p-8">
+    <div class="max-w-7xl mx-auto">
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">Quanfia</h1>
+            <p class="text-gray-600">Generate and analyze reports with AI-powered insights</p>
+        </header>
+
+
+         <!-- Django Messages -->
+        {% if messages %}
+        <div class="messages-container mb-6">
+            {% for message in messages %}
+            <div class="p-4 mb-3 rounded-md {% if message.tags == 'success' %}bg-green-100 text-green-800 border border-green-200{% elif message.tags == 'error' %}bg-red-100 text-red-800 border border-red-200{% else %}bg-blue-100 text-blue-700 border border-blue-200{% endif %} animate-fade-in">
+                <div class="flex items-center">
+                    {% if message.tags == 'success' %}
+                    <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
+                    {% elif message.tags == 'error' %}
+                    <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg>
+                    {% else %}
+                    <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zm-1 9a1 1 0 01-1-1v-2a1 1 0 112 0v2a1 1 0 01-1 1z" clip-rule="evenodd"></path></svg>
+                    {% endif %}
+                    <span>{{ message }}</span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="glass-panel rounded-xl overflow-hidden animate-fade-up" style="animation-delay: 0.1s;">
+                <div class="pb-3 p-6">
+                    <h2 class="text-xl font-semibold text-gray-800">Configure Analysis</h2>
+                </div>
+                <div class="space-y-6 p-6 pt-0">
+                    <div class="space-y-2">
+                        <label for="company" class="text-sm font-medium text-gray-700">
+                            Select Company
+                        </label>
+                        <select id="company" class="w-full h-10 rounded-md border border-gray-300 bg-transparent px-3 py-2 text-sm ring-offset-background placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1">
+                            {% for company in companies %}
+                                <option>{{ company }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="space-y-2">
+                        <label class="text-sm font-medium text-gray-700">Knowledge Base</label>
+                        <div class="grid grid-cols-2 gap-3">
+                            <button id="use-existing-btn" class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-blue-500 text-white shadow hover:bg-blue-500/90 h-9 px-4 py-2">Use Existing</button>
+                            <button id="create-new-btn" class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border border-gray-300 bg-transparent shadow-sm hover:bg-gray-100 hover:text-gray-900 h-9 px-4 py-2">Create New</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Knowledge base selection - shown when "Use Existing" is clicked -->
+                    <div id="existing-kb-section" class="space-y-2 hidden">
+                        <label for="kb-select" class="text-sm font-medium text-gray-700">
+                            Select Knowledge Base
+                        </label>
+                        <select id="kb-select" class="w-full h-10 rounded-md border border-gray-300 bg-transparent px-3 py-2 text-sm ring-offset-background placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1">
+                            <!-- Will be populated with AJAX -->
+                        </select>
+                    </div>
+
+                     <button id="generate-report-btn" class="w-full inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-blue-500 text-white shadow hover:bg-blue-500/90 h-10 rounded-md px-8">
+                        Generate Report
+                    </button> 
+                </div>
+            </div>
+
+            <!-- Chat Interface Panel -->
+             <div id="chat-panel" class="glass-panel rounded-xl overflow-hidden animate-fade-up md:col-span-2" style="animation-delay: 0.3s;">
+                <div class="pb-3 p-6">
+                    <h2 class="text-xl font-semibold text-gray-800">Chatbot</h2>
+                </div>
+                <div class="p-6 pt-0">
+                    <div id="chat-messages" class="h-80 overflow-y-auto mb-4 p-4 border rounded-lg">
+                        <p class="text-gray-500">Chat interface will be displayed here.</p>
+                    </div>
+                    <div class="flex">
+                        <input id="user-input" type="text" class="flex-grow h-10 rounded-l-md border border-gray-300 bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Type your message here...">
+                        <button id="send-message" class="h-10 px-4 bg-blue-500 text-white rounded-r-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            Send
+                        </button>
+                    </div>
+                </div>
+            </div> 
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const companySelect = document.getElementById('company');
+            const useExistingBtn = document.getElementById('use-existing-btn');
+            const createNewBtn = document.getElementById('create-new-btn');
+            const existingKbSection = document.getElementById('existing-kb-section');
+            const kbSelect = document.getElementById('kb-select');
+            const generateReportBtn = document.getElementById('generate-report-btn');
+            const userInput = document.getElementById('user-input');
+            const sendMessageBtn = document.getElementById('send-message');
+            const chatMessages = document.getElementById('chat-messages');
+            
+            // Function to load knowledge bases for selected company
+            function loadKnowledgeBases() {
+                const company = companySelect.value;
+                console.log("Loading knowledge bases for company:", company);
+                
+                // Clear current options
+                kbSelect.innerHTML = '';
+                
+                // Add loading option
+                const loadingOption = document.createElement('option');
+                loadingOption.textContent = 'Loading...';
+                loadingOption.disabled = true;
+                kbSelect.appendChild(loadingOption);
+                const formData1 = new FormData();
+                formData1.append('company', companySelect.value);
+                // Make the AJAX request with vanilla JavaScript
+                fetch(`/get-knowledge-bases/?company=${company}`, {
+                    method: 'GET',
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken')
+                    }
+                })
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Network response was not ok');
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        // Clear the dropdown
+                        kbSelect.innerHTML = '';
+                        
+                        // Add default option
+                        const defaultOption = document.createElement('option');
+                        defaultOption.value = '';
+                        defaultOption.textContent = 'Select a knowledge base';
+                        kbSelect.appendChild(defaultOption);
+                        
+                        // Check if we have knowledge bases
+                        if (data.knowledge_bases && data.knowledge_bases.length > 0) {
+                            // Add each knowledge base to the dropdown
+                            data.knowledge_bases.forEach(kb => {
+                                const option = document.createElement('option');
+                                option.value = kb;
+                                option.textContent = kb;
+                                kbSelect.appendChild(option);
+                            });
+                            console.log(`Loaded ${data.knowledge_bases.length} knowledge bases`);
+                        } else {
+                            // No knowledge bases found
+                            const noneOption = document.createElement('option');
+                            noneOption.disabled = true;
+                            noneOption.textContent = 'No knowledge bases found';
+                            kbSelect.appendChild(noneOption);
+                            console.log("No knowledge bases found");
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error loading knowledge bases:', error);
+                        kbSelect.innerHTML = '';
+                        const errorOption = document.createElement('option');
+                        errorOption.textContent = 'Error loading knowledge bases';
+                        kbSelect.appendChild(errorOption);
+                    });
+            }
+            
+            // Company selection change
+            companySelect.addEventListener('change', function() {
+                if (existingKbSection.classList.contains('hidden') === false) {
+                    loadKnowledgeBases();
+                }
+            });
+            
+            // "Use Existing" button click
+            useExistingBtn.addEventListener('click', function() {
+                existingKbSection.classList.remove('hidden');
+                loadKnowledgeBases();
+            });
+            
+            // "Create New" button click
+            createNewBtn.addEventListener('click', function() {
+                const selectedCompany = companySelect.value;
+                window.location.href = `/create-knowledge-base/?company=${encodeURIComponent(selectedCompany)}`;
+            });
+            
+           // Replace the existing Generate Report button click handler with this:
+        generateReportBtn.addEventListener('click', function() {
+            // Show loading state
+            const originalButtonText = generateReportBtn.innerHTML;
+            generateReportBtn.disabled = true;
+            generateReportBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-2 h-4 w-4 inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Generating Report...';
+            
+            // Prepare form data
+            const formData = new FormData();
+            formData.append('company', companySelect.value);
+            
+            if (!existingKbSection.classList.contains('hidden') && kbSelect.value) {
+                // Using existing knowledge base
+                formData.append('kb_id', kbSelect.value);
+            } else {
+                // Handle case where no KB is selected
+                // You might want to show an error or handle differently
+                generateReportBtn.disabled = false;
+                generateReportBtn.innerHTML = originalButtonText;
+                alert('Please select a knowledge base or create a new one');
+                return;
+            }
+            // Send request to generate report
+
+            fetch('/get-knowledge-bases/', {
+                method: 'GET',
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                generateReportBtn.disabled = false;
+                generateReportBtn.innerHTML = originalButtonText;
+                
+                if (data.success) {
+                    // Show success message
+                    alert(data.message);
+                    
+                    // Provide download link
+                    if (data.report_url) {
+                        window.location.href = data.report_url;
+                    }
+                } else {
+                    // Show error message
+                    alert('Error: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                generateReportBtn.disabled = false;
+                generateReportBtn.innerHTML = originalButtonText;
+                alert('An error occurred while generating the report');
+            });
+        });
+
+
+             // Company selection change
+            companySelect.addEventListener('change', function() {
+                console.log('Company changed to:', companySelect.value);
+                if (!existingKbSection.classList.contains('hidden')) {
+                    loadKnowledgeBases();
+                }
+            });
+            
+            // Send message functionality
+            sendMessageBtn.addEventListener('click', sendMessage);
+            userInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+
+
+            // Send message functionality - using the correct IDs
+            function sendMessage() {
+                const messageText = userInput.value.trim();
+                const company = companySelect.value;
+                const kbId = kbSelect.value;
+                
+                if (!messageText) return;
+                
+                // Log what we're sending for debugging
+                console.log("Sending message:", {
+                    user_input: messageText,
+                    company: company,
+                    kb_id: kbId
+                });
+                
+                // Clear the input field
+                userInput.value = '';
+                
+                // Display user message
+                const userDiv = document.createElement('div');
+                userDiv.className = 'mb-3';
+                userDiv.innerHTML = `<span class="font-bold">You:</span> ${messageText}`;
+                chatMessages.appendChild(userDiv);
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+                
+                // Create and send the request
+                const formData = new FormData();
+                formData.append('user_input', messageText);
+                formData.append('company', company);
+                formData.append('kb_id', kbId);
+                
+                fetch('/chat/', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    // Display the bot response
+                    const botDiv = document.createElement('div');
+                    botDiv.className = 'mb-3 bg-gray-100 p-2 rounded';
+                    botDiv.innerHTML = `<span class="font-bold">Bot:</span> ${data.response}`;
+                    chatMessages.appendChild(botDiv);
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    const errorDiv = document.createElement('div');
+                    errorDiv.className = 'mb-3 bg-red-100 p-2 rounded text-red-700';
+                    errorDiv.innerHTML = '<span class="font-bold">Error:</span> Sorry, there was an error processing your request.';
+                    chatMessages.appendChild(errorDiv);
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                });
+            }
+
+             // Add this to your index.html or base template where your dropdowns exist
+            $(document).ready(function() {
+                // When company dropdown changes, update KB dropdown
+                $('#company-select').change(function() {
+                    updateKnowledgeBases();
+                });
+                
+                // Initial population if company is pre-selected
+                if ($('#company-select').val()) {
+                    updateKnowledgeBases();
+                }
+                
+                function updateKnowledgeBases() {
+                    var selectedCompany = $('#company-select').val();
+                    
+                    // Clear current options
+                    $('#kb-select').empty();
+                    $('#kb-select').append('<option value="">Select a knowledge base</option>');
+                    
+                    if (selectedCompany) {
+                        // Show loading indicator
+                        $('#kb-select').append('<option value="" disabled>Loading...</option>');
+                        
+                        // Load knowledge bases for this company
+                        $.ajax({
+                            type: "GET",
+                            url: "/get-knowledge-bases/",
+                            data: {
+                                company: selectedCompany
+                            },
+                            success: function(response) {
+                                // Remove loading indicator
+                                $('#kb-select option[disabled]').remove();
+                                
+                                // Add options to the dropdown
+                                if (response.knowledge_bases && response.knowledge_bases.length > 0) {
+                                    $.each(response.knowledge_bases, function(i, kb) {
+                                        $('#kb-select').append($('<option>', {
+                                            value: kb.id,
+                                            text: kb.name
+                                        }));
+                                    });
+                                } else {
+                                    $('#kb-select').append('<option value="" disabled>No knowledge bases found</option>');
+                                }
+                                
+                                // Trigger change event to update any dependent elements
+                                $('#kb-select').trigger('change');
+                            },
+                            error: function(error) {
+                                console.error("Error loading knowledge bases:", error);
+                                $('#kb-select').empty();
+                                $('#kb-select').append('<option value="">Error loading knowledge bases</option>');
+                            }
+                        });
+                    }
+                }
+            });
+            
+            // Function to get CSRF token from cookies
+            function getCookie(name) {
+                let cookieValue = null;
+                if (document.cookie && document.cookie !== '') {
+                    const cookies = document.cookie.split(';');
+                    for (let i = 0; i < cookies.length; i++) {
+                        const cookie = cookies[i].trim();
+                        if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                            break;
+                        }
+                    }
+                }
+                return cookieValue;
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+[Unit]
+Description=gunicorn daemon
+Requires=llmchatbot-gunicorn.socket
+After=network.target
+
+[Service]
+User=azureuser
+Group=www-data
+WorkingDirectory=/home/azureuser/llmchatbot
+ExecStart=/home/azureuser/llmchatbot/venv/bin/gunicorn \
+          --access-logfile - \
+          --workers 3 \
+          --bind unix:/run/llmchatbot-gunicorn.sock \
+          llmchatbot.wsgi:application
+[Install]
+WantedBy=multi-user.target

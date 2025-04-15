@@ -1,0 +1,6 @@
+[Unit]
+Description=gunicorn socket
+[Socket]
+ListenStream=/run/llmchatbot-gunicorn.sock
+[Install]
+WantedBy=sockets.target
