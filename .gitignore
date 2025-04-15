@@ -23,10 +23,7 @@ venv.bak/
 *.swp
 *.swo
 
-# Sensitive information #
-chatbot/api_key.py
-**/api_key.*
-**/secrets.*
+
 *.pem
 *.key
 *.env
