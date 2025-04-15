@@ -10,11 +10,61 @@ from .report_generator import generate_report_from_files, generate_report_from_k
 import os
 import logging
 from django.shortcuts import get_object_or_404,redirect
+import json
+
 
 logger = logging.getLogger(__name__)
 
+
 @csrf_exempt
-@csrf_exempt
+def login_view(request):
+    if request.method == 'POST':
+        username = request.POST.get('username')
+        password = request.POST.get('password')
+        
+        # Load users from JSON file
+        json_file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'users.json')
+        
+        try:
+            with open(json_file_path, 'r') as f:
+                users_data = json.load(f)
+            
+            # Check credentials
+            authenticated = False
+            user_info = None
+            
+            for user in users_data.get('users', []):
+                if user['username'] == username and user['password'] == password:
+                    authenticated = True
+                    user_info = user
+                    break
+            
+            if authenticated:
+                # Store user info in session
+                request.session['user'] = {
+                    'username': user_info['username'],
+                    'full_name': user_info['full_name'],
+                    'role': user_info['role'],
+                    'is_authenticated': True
+                }
+                messages.success(request, f"Welcome back, {user_info['full_name']}!")
+                return redirect('index')
+            else:
+                messages.error(request, "Invalid username or password")
+                
+        except Exception as e:
+            messages.error(request, f"An error occurred: {str(e)}")
+    
+    return render(request, 'login.html')
+
+def logout_view(request):
+    # Clear the session
+    if 'user' in request.session:
+        del request.session['user']
+    messages.success(request, "You have been logged out successfully")
+    return redirect('login')
+
+
 def chat(request):
     if request.method == 'POST':
         user_input = request.POST.get('user_input')
@@ -213,3 +263,17 @@ def download_report(request, report_path):
         logger.error(f"Error downloading report: {e}")
         messages.error(request, f"Error downloading report: {str(e)}")
         return redirect('index')
+    
+
+
+    # Export the login and logout views explicitly
+__all__ = [
+    'login_view', 
+    'logout_view', 
+    'index', 
+    'chat', 
+    'create_knowledge_base', 
+    'get_knowledge_bases', 
+    'generate_report', 
+    'download_report'
+]

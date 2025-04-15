@@ -47,11 +47,12 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'chatbot.middleware.AuthenticationMiddleware'
 ]
 
 ROOT_URLCONF = 'llmchatbot.urls'
@@ -189,3 +190,4 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
 
 
 PPT_TEMPLATE_PATH = os.path.join(BASE_DIR, "chatbot", "templates", "ppt_templates", "report_template.pptx")
+
