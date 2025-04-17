@@ -190,4 +190,6 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
 
 
 PPT_TEMPLATE_PATH = os.path.join(BASE_DIR, "chatbot", "templates", "ppt_templates", "report_template.pptx")
+SECURE_CROSS_ORIGIN_OPENER_POLICY=None
+SESSION_COOKIE_SECURE=False
 
