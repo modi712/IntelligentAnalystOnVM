@@ -115,7 +115,6 @@ def index(request):
 
 
 
-
 def create_knowledge_base(request):
     """
     View function to create a new knowledge base
@@ -134,15 +133,38 @@ def create_knowledge_base(request):
                 files = request.FILES.getlist('files')
                 for f in files:
                     KnowledgeBaseFile.objects.create(knowledge_base=kb, file=f)
-                kb_name = kb.name
-                create_vector_store1(files, kb_name, selected_company)
                 
-                messages.success(request, f"Knowledge base '{kb.name}' created successfully with {len(files)} files.")
+                kb_name = kb.name
+                
+                # Sanitize the kb_name for use as collection name
+                import re
+                sanitized_kb_name = re.sub(r'[^a-zA-Z0-9_-]', '_', kb_name)
+                # Ensure it starts and ends with alphanumeric character
+                if not sanitized_kb_name[0].isalnum():
+                    sanitized_kb_name = 'kb_' + sanitized_kb_name
+                if len(sanitized_kb_name) > 0 and not sanitized_kb_name[-1].isalnum():
+                    sanitized_kb_name = sanitized_kb_name + '1'
+                # Ensure minimum length of 3
+                if len(sanitized_kb_name) < 3:
+                    sanitized_kb_name = sanitized_kb_name + '_db'
+                # Ensure maximum length of 63
+                sanitized_kb_name = sanitized_kb_name[:63]
+                
+                # Create vector store
+                try:
+                    from .report_generator import create_vector_store1
+                    retriever = create_vector_store1(files, sanitized_kb_name, selected_company)
+                    if retriever is None:
+                        messages.error(request, "Failed to create vector store. Check logs for details.")
+                    else:
+                        messages.success(request, f"Knowledge base '{kb.name}' created successfully with {len(files)} files.")
+                except Exception as e:
+                    logger.error(f"Error creating vector store: {e}")
+                    messages.error(request, f"Error creating knowledge base: {str(e)}")
+                
                 return redirect('index')
             except Exception as e:
                 messages.error(request, f"Error creating knowledge base: {str(e)}")
-                
-                
     else:
         kb_form = CreateKBForm(company=selected_company)
     

@@ -23,6 +23,7 @@ import json
 
 
 
+
 # Configure logger
 logger = logging.getLogger(__name__)
 
@@ -336,54 +337,77 @@ def create_vector_store1(files, kb_name, company_name):
     """Create a vector store from uploaded files."""
     logger.info(f"Creating vector store for {company_name}/{kb_name}")
     
-    # Get directories
-    kb_dir = get_kb_dir(company_name, kb_name)
-    ppt_dir = get_ppt_dir(company_name, kb_name)
-    
-    # Save uploaded files to directory
-    file_paths = []
-    for file_obj in files:
-        # Save file to disk
-        file_path = os.path.join(kb_dir, file_obj.name)
-        with open(file_path, "wb") as f:
-            for chunk in file_obj.chunks():
-                f.write(chunk)
-        file_paths.append(file_path)
-        logger.debug(f"Saved file: {file_path}")
-    
-    # Process PDF files
-    all_texts = []
-    for file_path in file_paths:
-        if file_path.lower().endswith('.pdf'):
-            try:
-                loader = PyPDFLoader(file_path)
-                pages = loader.load_and_split()
-                all_texts.extend([page.page_content for page in pages])
-                logger.debug(f"Processed PDF: {file_path}")
-            except Exception as e:
-                logger.error(f"Error processing PDF {file_path}: {e}")
-    
-    # Create chunks and vectorize
-    chunks = text_splitter.create_documents(all_texts)
-    uuids = [str(uuid4()) for _ in range(len(chunks))]
-    
-    # Initialize and save vector store
-    persist_dir = os.path.join(kb_dir, "vector_store")
-    ensure_dir_exists(persist_dir)
-    
-    vectorstore = Chroma(
-        collection_name=kb_name,
-        embedding_function=embeddings,
-        persist_directory=persist_dir,
-    )
-    
-    # Add documents to the vector store
     try:
-        vectorstore.add_documents(documents=chunks, ids=uuids)
-        print(f"Added {len(chunks)} document chunks to vector store")
-        logger.info(f"Added {len(chunks)} document chunks to vector store")
+        # Get directories
+        kb_dir = get_kb_dir(company_name, kb_name)
+        persist_dir = os.path.join(kb_dir, "vector_store")
+        ensure_dir_exists(persist_dir)
+        
+        # Process uploaded files to get text
+        all_texts = []
+        file_paths = []
+        
+        # First save the files to disk
+        for file_obj in files:
+            # Save file to disk
+            file_path = os.path.join(kb_dir, file_obj.name)
+            with open(file_path, "wb") as f:
+                for chunk in file_obj.chunks():
+                    f.write(chunk)
+            file_paths.append(file_path)
+            logger.debug(f"Saved file: {file_path}")
+        
+        # Then process the files to extract text
+        for file_path in file_paths:
+            if file_path.lower().endswith('.pdf'):
+                try:
+                    loader = PyPDFLoader(file_path)
+                    pages = loader.load_and_split()
+                    all_texts.extend([page.page_content for page in pages])
+                    logger.debug(f"Processed PDF: {file_path}")
+                except Exception as e:
+                    logger.error(f"Error processing PDF {file_path}: {e}")
+        
+        # Create chunks and vectorize
+        chunks = text_splitter.create_documents(all_texts)
+        uuids = [str(uuid4()) for _ in range(len(chunks))]
+        
+        # Define max batch size (lower than the 166 limit mentioned in the error)
+        MAX_BATCH_SIZE = 100
+        
+        # Create batches of documents
+        total_chunks = len(chunks)
+        batches = []
+        uuid_batches = []
+        
+        for i in range(0, total_chunks, MAX_BATCH_SIZE):
+            end_idx = min(i + MAX_BATCH_SIZE, total_chunks)
+            batches.append(chunks[i:end_idx])
+            uuid_batches.append(uuids[i:end_idx])
+        
+        logger.info(f"Split {total_chunks} documents into {len(batches)} batches of maximum size {MAX_BATCH_SIZE}")
+        
+        # Create vector store
+        vectorstore = Chroma(
+            collection_name=kb_name,
+            embedding_function=embeddings,
+            persist_directory=persist_dir,
+        )
+        
+        # Add documents in batches
+        for i, (batch, uuid_batch) in enumerate(zip(batches, uuid_batches)):
+            logger.info(f"Adding batch {i+1}/{len(batches)} with {len(batch)} documents")
+            vectorstore.add_documents(documents=batch, ids=uuid_batch)
+            
+        logger.info(f"Successfully added all {total_chunks} document chunks to vector store")
+        
+        # Create and return a retriever
+        retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+        return retriever
+        
     except Exception as e:
-        logger.error(f"Error adding documents to vector store: {e}")
+        logger.error(f"Error creating vector store: {e}")
+        return None
 
 def generate_generic_report(retriever, company_name, kb_name):
     """Generate a generic report for other companies"""
