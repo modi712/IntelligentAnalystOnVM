@@ -6,7 +6,7 @@ from .chatbot_logic import get_ai_response
 from .models import KnowledgeBase, KnowledgeBaseFile
 from .forms import CreateKBForm, KnowledgeBaseFileForm
 from django.contrib import messages
-from .report_generator import generate_report_from_files, generate_report_from_kb,generate_chat_response, create_vector_store1
+from .report_generator1 import  generate_chat_response, create_vector_store1,generate_excel_report_from_kb
 import os
 import logging
 from django.shortcuts import get_object_or_404,redirect
@@ -102,7 +102,7 @@ def index(request):
     View function for the home page of the chatbot.
     """
     # Get list of companies for the dropdown
-    companies = KnowledgeBase.objects.values_list('company', flat=True).distinct()
+    companies = list(KnowledgeBase.objects.values_list('company', flat=True).distinct())
     
     # Default if no companies exist
     if not companies:
@@ -110,6 +110,7 @@ def index(request):
     
     context = {
         'companies': companies,
+        'companies_json': json.dumps(companies),  # Pass as JSON for JavaScript
     }
     return render(request, 'index.html', context)
 
@@ -128,6 +129,10 @@ def create_knowledge_base(request):
             try:
                 # Create the knowledge base
                 kb = kb_form.save()
+
+
+                 # Add the company to the context for the response
+                new_company = selected_company
                 
                 # Handle multiple file uploads
                 files = request.FILES.getlist('files')
@@ -172,7 +177,9 @@ def create_knowledge_base(request):
         'form': kb_form,
         'selected_company': selected_company
     }
-    return render(request, 'create_kb.html', context)
+     # Include success message with the new company name
+    messages.success(request, f"Knowledge base '{kb.name}' created successfully with {len(files)} files for company '{new_company}'.")
+    return render(request, 'create_kb.html', context,index)
 
 def get_knowledge_bases(request):
     """AJAX view to get knowledge bases for a company"""
@@ -195,97 +202,171 @@ def get_knowledge_bases(request):
 
 
 
+# # def generate_report(request):
+#     """Handle report generation requests"""
+#     if request.method == 'POST':
+#         try:
+#             # Get parameters from the request
+#             company_name = request.POST.get('company', '')
+#             kb_id = request.POST.get('kb_id', None)
+            
+#             if not company_name:
+#                 return JsonResponse({'success': False, 'message': 'Company name is required'})
+            
+#             # Check if we're using an existing KB or creating a new one
+#             if kb_id:
+#                 # Using existing KB
+#                 kb = get_object_or_404(KnowledgeBase, id=kb_id)
+#                 kb_name = kb.name
+                
+#                 # Generate report from KB
+#                 result = generate_report_from_kb(company_name, kb_name)
+                
+#                 if result['success']:
+#                     # Return the path to the generated report for download
+#                     return JsonResponse({
+#                         'success': True, 
+#                         'message': result['message'],
+#                         'report_url': f"/download-report/{os.path.basename(result['report_path'])}/",
+#                     })
+#                 else:
+#                     return JsonResponse({'success': False, 'message': result['message']})
+                
+#             else:
+#                 # Check if files were uploaded
+#                 files = request.FILES.getlist('files')
+#                 if not files:
+#                     return JsonResponse({'success': False, 'message': 'No files uploaded'})
+                
+#                 # Generate KB name
+#                 import datetime
+#                 kb_name = f"{company_name.replace(' ', '')}{datetime.date.today().strftime('%Y%m%d')}"
+                
+#                 # Generate report from files
+#                 result = generate_report_from_files(company_name, kb_name, files)
+                
+#                 if result['success']:
+#                     # Return the path to the generated report for download
+#                     return JsonResponse({
+#                         'success': True, 
+#                         'message': result['message'],
+#                         'report_url': f"/download-report/{os.path.basename(result['report_path'])}/",
+#                     })
+#                 else:
+#                     return JsonResponse({'success': False, 'message': result['message']})
+                
+#         except Exception as e:
+#             logger.error(f"Error generating report: {e}")
+#             return JsonResponse({'success': False, 'message': f"Error: {str(e)}"})
+    
+#     # If not a POST request, return error
+#     return JsonResponse({'success': False, 'message': 'Invalid request method'})
+
 def generate_report(request):
-    """Handle report generation requests"""
+    """
+    View function to generate a report for a knowledge base
+    """
     if request.method == 'POST':
         try:
-            # Get parameters from the request
-            company_name = request.POST.get('company', '')
-            kb_id = request.POST.get('kb_id', None)
+            # Parse JSON data
+            data = json.loads(request.body)
+            company_name = data.get('company')
+            kb_name = data.get('kb_name')
+            report_type = data.get('report_type', 'excel')  
             
-            if not company_name:
-                return JsonResponse({'success': False, 'message': 'Company name is required'})
+            # Validate input
+            if not company_name or not kb_name:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'Company name and knowledge base name are required'
+                })
             
-            # Check if we're using an existing KB or creating a new one
-            if kb_id:
-                # Using existing KB
-                kb = get_object_or_404(KnowledgeBase, id=kb_id)
-                kb_name = kb.name
-                
-                # Generate report from KB
-                result = generate_report_from_kb(company_name, kb_name)
-                
-                if result['success']:
-                    # Return the path to the generated report for download
-                    return JsonResponse({
-                        'success': True, 
-                        'message': result['message'],
-                        'report_url': f"/download-report/{os.path.basename(result['report_path'])}/",
-                    })
-                else:
-                    return JsonResponse({'success': False, 'message': result['message']})
-                
-            else:
-                # Check if files were uploaded
-                files = request.FILES.getlist('files')
-                if not files:
-                    return JsonResponse({'success': False, 'message': 'No files uploaded'})
-                
-                # Generate KB name
-                import datetime
-                kb_name = f"{company_name.replace(' ', '')}{datetime.date.today().strftime('%Y%m%d')}"
-                
-                # Generate report from files
-                result = generate_report_from_files(company_name, kb_name, files)
-                
-                if result['success']:
-                    # Return the path to the generated report for download
-                    return JsonResponse({
-                        'success': True, 
-                        'message': result['message'],
-                        'report_url': f"/download-report/{os.path.basename(result['report_path'])}/",
-                    })
-                else:
-                    return JsonResponse({'success': False, 'message': result['message']})
-                
+            # Generate the requested report type
+            if report_type == 'excel':
+                result = generate_excel_report_from_kb(company_name, kb_name)
+            
+            # Return the result
+            return JsonResponse(result)
+            
         except Exception as e:
             logger.error(f"Error generating report: {e}")
-            return JsonResponse({'success': False, 'message': f"Error: {str(e)}"})
+            return JsonResponse({
+                'success': False,
+                'message': f"Error: {str(e)}"
+            })
+    else:
+        return JsonResponse({
+            'success': False,
+            'message': 'Invalid request method'
+        }, status=405)
+
+
+# def download_report(request, report_path):
+#     """Handle report download requests"""
+#     try:
+#         # Search for the report in the report directory
+#         from django.conf import settings
+#         import os
+        
+#         # Find the full path of the report
+#         for root, dirs, files in os.walk(settings.MEDIA_ROOT):
+#             for file in files:
+#                 if file == report_path:
+#                     file_path = os.path.join(root, file)
+                    
+#                     # Set the appropriate content type based on file extension
+#                     content_type = 'application/pdf' if file_path.lower().endswith('.pdf') else 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+                    
+#                     response = FileResponse(open(file_path, 'rb'), content_type=content_type)
+#                     response['Content-Disposition'] = f'attachment; filename="{os.path.basename(file_path)}"'
+#                     return response
+        
+#         # If report not found
+#         messages.error(request, f"Report not found: {report_path}")
+#         return redirect('index')
+        
+#     except Exception as e:
+#         logger.error(f"Error downloading report: {e}")
+#         messages.error(request, f"Error downloading report: {str(e)}")
+#         return redirect('index')
     
-    # If not a POST request, return error
-    return JsonResponse({'success': False, 'message': 'Invalid request method'})
-
-
 
 def download_report(request, report_path):
-    """Handle report download requests"""
+    """
+    View function to download a generated report
+    """
     try:
-        # Search for the report in the report directory
-        from django.conf import settings
-        import os
+        # Validate the file exists
+        if not os.path.exists(report_path):
+            return JsonResponse({
+                'success': False,
+                'message': 'Report file not found'
+            }, status=404)
         
-        # Find the full path of the report
-        for root, dirs, files in os.walk(settings.MEDIA_ROOT):
-            for file in files:
-                if file == report_path:
-                    file_path = os.path.join(root, file)
-                    
-                    # Set the appropriate content type based on file extension
-                    content_type = 'application/pdf' if file_path.lower().endswith('.pdf') else 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-                    
-                    response = FileResponse(open(file_path, 'rb'), content_type=content_type)
-                    response['Content-Disposition'] = f'attachment; filename="{os.path.basename(file_path)}"'
-                    return response
+        # Get the file extension
+        file_extension = os.path.splitext(report_path)[1].lower()
         
-        # If report not found
-        messages.error(request, f"Report not found: {report_path}")
-        return redirect('index')
+        # Set the content type based on file extension
+        content_types = {
+            '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            '.pdf': 'application/pdf',
+            '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        }
+        
+        content_type = content_types.get(file_extension, 'application/octet-stream')
+        
+        # Create a FileResponse
+        response = FileResponse(open(report_path, 'rb'), content_type=content_type)
+        response['Content-Disposition'] = f'attachment; filename="{os.path.basename(report_path)}"'
+        
+        return response
         
     except Exception as e:
         logger.error(f"Error downloading report: {e}")
-        messages.error(request, f"Error downloading report: {str(e)}")
-        return redirect('index')
-    
+        return JsonResponse({
+            'success': False,
+            'message': f"Error: {str(e)}"
+        }, status=500)
 
 
     # Export the login and logout views explicitly
@@ -297,5 +378,10 @@ __all__ = [
     'create_knowledge_base', 
     'get_knowledge_bases', 
     'generate_report', 
-    'download_report'
+    'download_report',
+    'generate_chat_response',
+    'generate_report_from_files',
+    'generate_report_from_kb',
+    'generate_excel_report_from_kb',
+    'generate_excel_report'
 ]

@@ -83,6 +83,13 @@
                         </select>
                     </div>
 
+                    <div class="mt-4">
+                        <form id="add-company-form" class="flex items-center space-x-2">
+                            <input type="text" id="new-company-input" placeholder="Add new company" class="border rounded px-2 py-1">
+                            <button type="submit" class="bg-blue-500 text-white px-3 py-1 rounded">Add</button>
+                        </form>
+                    </div>
+
                     <div class="space-y-2">
                         <label class="text-sm font-medium text-gray-700">Knowledge Base</label>
                         <div class="grid grid-cols-2 gap-3">
@@ -101,7 +108,7 @@
                         </select>
                     </div>
 
-                     <button id="generate-report-btn" class="w-full inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-blue-500 text-white shadow hover:bg-blue-500/90 h-10 rounded-md px-8">
+                     <button id="generateExcelReport" class="w-full inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-blue-500 text-white shadow hover:bg-blue-500/90 h-10 rounded-md px-8">
                         Generate Report
                     </button> 
                 </div>
@@ -134,7 +141,7 @@
             const createNewBtn = document.getElementById('create-new-btn');
             const existingKbSection = document.getElementById('existing-kb-section');
             const kbSelect = document.getElementById('kb-select');
-            const generateReportBtn = document.getElementById('generate-report-btn');
+            const generateReportBtn = document.getElementById('generateExcelReport');
             const userInput = document.getElementById('user-input');
             const sendMessageBtn = document.getElementById('send-message');
             const chatMessages = document.getElementById('chat-messages');
@@ -224,64 +231,81 @@
                 window.location.href = `/create-knowledge-base/?company=${encodeURIComponent(selectedCompany)}`;
             });
             
-           // Replace the existing Generate Report button click handler with this:
-        generateReportBtn.addEventListener('click', function() {
-            // Show loading state
-            const originalButtonText = generateReportBtn.innerHTML;
-            generateReportBtn.disabled = true;
-            generateReportBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-2 h-4 w-4 inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Generating Report...';
-            
-            // Prepare form data
-            const formData = new FormData();
-            formData.append('company', companySelect.value);
-            
-            if (!existingKbSection.classList.contains('hidden') && kbSelect.value) {
-                // Using existing knowledge base
-                formData.append('kb_id', kbSelect.value);
-            } else {
-                // Handle case where no KB is selected
-                // You might want to show an error or handle differently
-                generateReportBtn.disabled = false;
-                generateReportBtn.innerHTML = originalButtonText;
-                alert('Please select a knowledge base or create a new one');
-                return;
-            }
-            // Send request to generate report
-
-            fetch('/get-knowledge-bases/', {
-                method: 'GET',
-                headers: {
-                    'X-CSRFToken': getCookie('csrftoken')
-                },
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                generateReportBtn.disabled = false;
-                generateReportBtn.innerHTML = originalButtonText;
+            // Connect the button to the function
+            generateReportBtn.addEventListener('click', function() {
+                const company = document.getElementById('company').value;
+                const kbSelect = document.getElementById('kb-select');
                 
-                if (data.success) {
-                    // Show success message
-                    alert(data.message);
-                    
-                    // Provide download link
-                    if (data.report_url) {
-                        window.location.href = data.report_url;
-                    }
-                } else {
-                    // Show error message
-                    alert('Error: ' + data.message);
+                if (!company) {
+                    showAlert('Please select a company first.', 'error');
+                    return;
                 }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                generateReportBtn.disabled = false;
-                generateReportBtn.innerHTML = originalButtonText;
-                alert('An error occurred while generating the report');
+                
+                if (!kbSelect.value) {
+                    showAlert('Please select a knowledge base first.', 'error');
+                    return;
+                }
+                
+                // Show loading indicator
+                // First check if showAlert is defined, if not create a simple implementation
+                if (typeof showAlert !== 'function') {
+                    function showAlert(message, type) {
+                        console.log(`${type}: ${message}`);
+                        const alertDiv = document.createElement('div');
+                        alertDiv.className = `p-4 mb-3 rounded-md animate-fade-in ${
+                            type === 'success' ? 'bg-green-100 text-green-800 border border-green-200' : 
+                            type === 'error' ? 'bg-red-100 text-red-800 border border-red-200' : 
+                            'bg-blue-100 text-blue-700 border border-blue-200'
+                        }`;
+                        alertDiv.textContent = message;
+                        
+                        // Add to page if there's a messages container
+                        const messagesContainer = document.querySelector('.messages-container');
+                        if (messagesContainer) {
+                            messagesContainer.appendChild(alertDiv);
+                            // Auto-remove after 5 seconds
+                            setTimeout(() => alertDiv.remove(), 5000);
+                        } else {
+                            // Fallback - use alert
+                            alert(`${type.toUpperCase()}: ${message}`);
+                        }
+                    }
+                }
+                
+                showAlert('Generating Excel report... This may take a minute.', 'info');
+                
+                fetch('/generate-report/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: JSON.stringify({
+                        company: company,
+                        kb_name: kbSelect.options[kbSelect.selectedIndex].text,
+                        report_type: 'excel'
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showAlert('Excel report generated successfully!', 'success');
+                        
+                        // Create download link for the report
+                        const downloadPath = data.report_path;
+                        const downloadUrl = `/download-report/${encodeURIComponent(downloadPath)}/`;
+                        
+                        // Create and trigger download
+                        window.location.href = downloadUrl;
+                    } else {
+                        showAlert(`Error: ${data.message}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showAlert('An error occurred. Please try again.', 'error');
+                });
             });
-        });
-
-
              // Company selection change
             companySelect.addEventListener('change', function() {
                 console.log('Company changed to:', companySelect.value);
@@ -429,6 +453,78 @@
                     }
                 }
                 return cookieValue;
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize companies from Django or local storage
+            const initialCompanies = {{ companies_json|safe }};
+            let companies = [];
+            
+            // Try to get companies from local storage
+            const storedCompanies = localStorage.getItem('chatbotCompanies');
+            if (storedCompanies) {
+                companies = JSON.parse(storedCompanies);
+            } else {
+                // If not in local storage, use the ones from Django
+                companies = initialCompanies;
+                // Save to local storage
+                localStorage.setItem('chatbotCompanies', JSON.stringify(companies));
+            }
+            
+            // Merge any new companies from the database that aren't in local storage
+            initialCompanies.forEach(company => {
+                if (!companies.includes(company)) {
+                    companies.push(company);
+                }
+            });
+            
+            // Update local storage with merged list
+            localStorage.setItem('chatbotCompanies', JSON.stringify(companies));
+            
+            // Populate the dropdown
+            const companySelect = document.getElementById('company');
+            if (companySelect) {
+                // Clear existing options
+                companySelect.innerHTML = '';
+                
+                // Add options for each company
+                companies.forEach(company => {
+                    const option = document.createElement('option');
+                    option.value = company;
+                    option.textContent = company;
+                    companySelect.appendChild(option);
+                });
+            }
+            
+            // Add functionality to add new companies
+            const addCompanyForm = document.getElementById('add-company-form');
+            if (addCompanyForm) {
+                addCompanyForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    const newCompanyInput = document.getElementById('new-company-input');
+                    const newCompany = newCompanyInput.value.trim();
+                    
+                    if (newCompany && !companies.includes(newCompany)) {
+                        // Add to array
+                        companies.push(newCompany);
+                        
+                        // Update local storage
+                        localStorage.setItem('chatbotCompanies', JSON.stringify(companies));
+                        
+                        // Add to dropdown
+                        const option = document.createElement('option');
+                        option.value = newCompany;
+                        option.textContent = newCompany;
+                        companySelect.appendChild(option);
+                        
+                        // Select the new company
+                        companySelect.value = newCompany;
+                        
+                        // Clear input
+                        newCompanyInput.value = '';
+                    }
+                });
             }
         });
     </script>
