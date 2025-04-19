@@ -13,6 +13,7 @@ urlpatterns = [
     path('login/', login_view, name='login'),
     path('logout/', logout_view, name='logout'),
     path('', views.index, name='index'),
+    path('add-company/', views.add_company, name='add_company'),
     path('chat/', views.chat, name='chat'),
     path('create-knowledge-base/', views.create_knowledge_base, name='create_knowledge_base'),
     path('get-knowledge-bases/', views.get_knowledge_bases, name='get_knowledge_bases'),

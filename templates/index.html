@@ -84,7 +84,8 @@
                     </div>
 
                     <div class="mt-4">
-                        <form id="add-company-form" class="flex items-center space-x-2">
+                       <form id="add-company-form" class="flex items-center space-x-2">
+                            {% csrf_token %}
                             <input type="text" id="new-company-input" placeholder="Add new company" class="border rounded px-2 py-1">
                             <button type="submit" class="bg-blue-500 text-white px-3 py-1 rounded">Add</button>
                         </form>
@@ -111,6 +112,8 @@
                      <button id="generateExcelReport" class="w-full inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-blue-500 text-white shadow hover:bg-blue-500/90 h-10 rounded-md px-8">
                         Generate Report
                     </button> 
+
+                    
                 </div>
             </div>
 
@@ -135,17 +138,52 @@
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const companySelect = document.getElementById('company');
-            const useExistingBtn = document.getElementById('use-existing-btn');
-            const createNewBtn = document.getElementById('create-new-btn');
-            const existingKbSection = document.getElementById('existing-kb-section');
-            const kbSelect = document.getElementById('kb-select');
-            const generateReportBtn = document.getElementById('generateExcelReport');
-            const userInput = document.getElementById('user-input');
-            const sendMessageBtn = document.getElementById('send-message');
-            const chatMessages = document.getElementById('chat-messages');
-            
+
+         // Declare global variables at the top
+        let companySelect, useExistingBtn, createNewBtn, existingKbSection, kbSelect, generateReportBtn, userInput, sendMessageBtn, chatMessages;
+
+
+        // Function to get CSRF token from cookies
+            function getCookie(name) {
+                    let cookieValue = null;
+                    if (document.cookie && document.cookie !== '') {
+                        const cookies = document.cookie.split(';');
+                        for (let i = 0; i < cookies.length; i++) {
+                            const cookie = cookies[i].trim();
+                            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                                break;
+                            }
+                        }
+                    }
+                    return cookieValue;
+                }
+
+
+            // Function to show alert messages
+            {% comment %} function showAlert(message, type) {
+                console.log(`${type}: ${message}`);
+                const alertDiv = document.createElement('div');
+                alertDiv.className = `p-4 mb-3 rounded-md animate-fade-in ${
+                    type === 'success' ? 'bg-green-100 text-green-800 border border-green-200' : 
+                    type === 'error' ? 'bg-red-100 text-red-800 border border-red-200' : 
+                    'bg-blue-100 text-blue-700 border border-blue-200'
+                }`;
+                alertDiv.textContent = message; {% endcomment %}
+
+             // Add to page if there's a messages container
+                {% comment %} const messagesContainer = document.querySelector('.messages-container');
+                if (messagesContainer) {
+                    messagesContainer.appendChild(alertDiv);
+                    // Auto-remove after 5 seconds
+                    setTimeout(() => alertDiv.remove(), 5000);
+                } else {
+                    // Fallback - use alert
+                    alert(`${type.toUpperCase()}: ${message}`);
+                }
+            } {% endcomment %}
+
+
             // Function to load knowledge bases for selected company
             function loadKnowledgeBases() {
                 const company = companySelect.value;
@@ -211,116 +249,7 @@
                         kbSelect.appendChild(errorOption);
                     });
             }
-            
-            // Company selection change
-            companySelect.addEventListener('change', function() {
-                if (existingKbSection.classList.contains('hidden') === false) {
-                    loadKnowledgeBases();
-                }
-            });
-            
-            // "Use Existing" button click
-            useExistingBtn.addEventListener('click', function() {
-                existingKbSection.classList.remove('hidden');
-                loadKnowledgeBases();
-            });
-            
-            // "Create New" button click
-            createNewBtn.addEventListener('click', function() {
-                const selectedCompany = companySelect.value;
-                window.location.href = `/create-knowledge-base/?company=${encodeURIComponent(selectedCompany)}`;
-            });
-            
-            // Connect the button to the function
-            generateReportBtn.addEventListener('click', function() {
-                const company = document.getElementById('company').value;
-                const kbSelect = document.getElementById('kb-select');
-                
-                if (!company) {
-                    showAlert('Please select a company first.', 'error');
-                    return;
-                }
-                
-                if (!kbSelect.value) {
-                    showAlert('Please select a knowledge base first.', 'error');
-                    return;
-                }
-                
-                // Show loading indicator
-                // First check if showAlert is defined, if not create a simple implementation
-                if (typeof showAlert !== 'function') {
-                    function showAlert(message, type) {
-                        console.log(`${type}: ${message}`);
-                        const alertDiv = document.createElement('div');
-                        alertDiv.className = `p-4 mb-3 rounded-md animate-fade-in ${
-                            type === 'success' ? 'bg-green-100 text-green-800 border border-green-200' : 
-                            type === 'error' ? 'bg-red-100 text-red-800 border border-red-200' : 
-                            'bg-blue-100 text-blue-700 border border-blue-200'
-                        }`;
-                        alertDiv.textContent = message;
-                        
-                        // Add to page if there's a messages container
-                        const messagesContainer = document.querySelector('.messages-container');
-                        if (messagesContainer) {
-                            messagesContainer.appendChild(alertDiv);
-                            // Auto-remove after 5 seconds
-                            setTimeout(() => alertDiv.remove(), 5000);
-                        } else {
-                            // Fallback - use alert
-                            alert(`${type.toUpperCase()}: ${message}`);
-                        }
-                    }
-                }
-                
-                showAlert('Generating Excel report... This may take a minute.', 'info');
-                
-                fetch('/generate-report/', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': getCookie('csrftoken')
-                    },
-                    body: JSON.stringify({
-                        company: company,
-                        kb_name: kbSelect.options[kbSelect.selectedIndex].text,
-                        report_type: 'excel'
-                    })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showAlert('Excel report generated successfully!', 'success');
-                        
-                        // Create download link for the report
-                        const downloadPath = data.report_path;
-                        const downloadUrl = `/download-report/${encodeURIComponent(downloadPath)}/`;
-                        
-                        // Create and trigger download
-                        window.location.href = downloadUrl;
-                    } else {
-                        showAlert(`Error: ${data.message}`, 'error');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    showAlert('An error occurred. Please try again.', 'error');
-                });
-            });
-             // Company selection change
-            companySelect.addEventListener('change', function() {
-                console.log('Company changed to:', companySelect.value);
-                if (!existingKbSection.classList.contains('hidden')) {
-                    loadKnowledgeBases();
-                }
-            });
-            
-            // Send message functionality
-            sendMessageBtn.addEventListener('click', sendMessage);
-            userInput.addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    sendMessage();
-                }
-            });
+
 
 
             // Send message functionality - using the correct IDs
@@ -380,152 +309,260 @@
                 });
             }
 
-             // Add this to your index.html or base template where your dropdowns exist
-            $(document).ready(function() {
-                // When company dropdown changes, update KB dropdown
-                $('#company-select').change(function() {
-                    updateKnowledgeBases();
-                });
-                
-                // Initial population if company is pre-selected
-                if ($('#company-select').val()) {
-                    updateKnowledgeBases();
-                }
-                
-                function updateKnowledgeBases() {
-                    var selectedCompany = $('#company-select').val();
-                    
-                    // Clear current options
-                    $('#kb-select').empty();
-                    $('#kb-select').append('<option value="">Select a knowledge base</option>');
-                    
-                    if (selectedCompany) {
-                        // Show loading indicator
-                        $('#kb-select').append('<option value="" disabled>Loading...</option>');
-                        
-                        // Load knowledge bases for this company
-                        $.ajax({
-                            type: "GET",
-                            url: "/get-knowledge-bases/",
-                            data: {
-                                company: selectedCompany
-                            },
-                            success: function(response) {
-                                // Remove loading indicator
-                                $('#kb-select option[disabled]').remove();
-                                
-                                // Add options to the dropdown
-                                if (response.knowledge_bases && response.knowledge_bases.length > 0) {
-                                    $.each(response.knowledge_bases, function(i, kb) {
-                                        $('#kb-select').append($('<option>', {
-                                            value: kb.id,
-                                            text: kb.name
-                                        }));
-                                    });
-                                } else {
-                                    $('#kb-select').append('<option value="" disabled>No knowledge bases found</option>');
-                                }
-                                
-                                // Trigger change event to update any dependent elements
-                                $('#kb-select').trigger('change');
-                            },
-                            error: function(error) {
-                                console.error("Error loading knowledge bases:", error);
-                                $('#kb-select').empty();
-                                $('#kb-select').append('<option value="">Error loading knowledge bases</option>');
-                            }
-                        });
-                    }
-                }
-            });
-            
-            // Function to get CSRF token from cookies
-            function getCookie(name) {
-                let cookieValue = null;
-                if (document.cookie && document.cookie !== '') {
-                    const cookies = document.cookie.split(';');
-                    for (let i = 0; i < cookies.length; i++) {
-                        const cookie = cookies[i].trim();
-                        if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                            break;
-                        }
-                    }
-                }
-                return cookieValue;
-            }
-        });
+
+
+
+
+
+
+
+
 
         document.addEventListener('DOMContentLoaded', function() {
-            // Initialize companies from Django or local storage
-            const initialCompanies = {{ companies_json|safe }};
-            let companies = [];
+            companySelect = document.getElementById('company');
+            useExistingBtn = document.getElementById('use-existing-btn');
+            createNewBtn = document.getElementById('create-new-btn');
+            existingKbSection = document.getElementById('existing-kb-section');
+            kbSelect = document.getElementById('kb-select');
+            generateReportBtn = document.getElementById('generateExcelReport');
+            userInput = document.getElementById('user-input');
+            sendMessageBtn = document.getElementById('send-message');
+            chatMessages = document.getElementById('chat-messages');
+
+            // Process Django messages to add close buttons
+            const djangoMessages = document.querySelectorAll('.messages-container > div');
+            djangoMessages.forEach(function(message) {
+                    // Add a close button
+                    const closeBtn = document.createElement('button');
+                    closeBtn.innerHTML = '&times;';
+                    closeBtn.className = 'close-btn';
+                    closeBtn.style.float = 'right';
+                    closeBtn.style.background = 'none';
+                    closeBtn.style.border = 'none';
+                    closeBtn.style.fontSize = '20px';
+                    closeBtn.style.cursor = 'pointer';
+                    closeBtn.style.marginLeft = '10px';
+                    closeBtn.onclick = function() {
+                        message.remove();
+                    };
+                    message.appendChild(closeBtn);
+
+                    setTimeout(function() {
+                    message.style.transition = 'opacity 0.5s ease';
+                    message.style.opacity = '0';
+                    setTimeout(function() {
+                        message.remove();
+                    }, 500);
+                }, 5000);
+            });
+
+            // Also enhance your showAlert function to add close buttons
+            const originalShowAlert = showAlert;
+            showAlert = function(message, type) {
+                console.log(`${type}: ${message}`);
+                const alertDiv = document.createElement('div');
+                alertDiv.className = `p-4 mb-3 rounded-md animate-fade-in ${
+                    type === 'success' ? 'bg-green-100 text-green-800 border border-green-200' : 
+                    type === 'error' ? 'bg-red-100 text-red-800 border border-red-200' : 
+                    'bg-blue-100 text-blue-700 border border-blue-200'
+                }`;
+
+                // Create message and close button container
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'flex justify-between items-center';
+
+                // Add message
+                const messageSpan = document.createElement('span');
+                messageSpan.textContent = message;
+                contentDiv.appendChild(messageSpan);
+
+                // Add close button
+                const closeBtn = document.createElement('button');
+                closeBtn.innerHTML = '&times;';
+                closeBtn.className = 'ml-2 text-xl font-medium';
+                closeBtn.onclick = function() {
+                    alertDiv.remove();
+                };
+                contentDiv.appendChild(closeBtn);
+
+                // Add content to alert
+                alertDiv.appendChild(contentDiv);
+
+                // Add to page if there's a messages container
+                const messagesContainer = document.querySelector('.messages-container');
+                if (messagesContainer) {
+                    messagesContainer.appendChild(alertDiv);
+                    // Auto-remove after 5 seconds
+                    setTimeout(() => {
+                        alertDiv.style.transition = 'opacity 0.5s ease';
+                        alertDiv.style.opacity = '0';
+                        setTimeout(() => alertDiv.remove(), 500);
+                        }, 5000);
+                } else {
+                        // Fallback - use alert
+                        alert(`${type.toUpperCase()}: ${message}`);
+                }
+            };
+                
             
-            // Try to get companies from local storage
-            const storedCompanies = localStorage.getItem('chatbotCompanies');
-            if (storedCompanies) {
-                companies = JSON.parse(storedCompanies);
-            } else {
-                // If not in local storage, use the ones from Django
-                companies = initialCompanies;
-                // Save to local storage
-                localStorage.setItem('chatbotCompanies', JSON.stringify(companies));
-            }
-            
-            // Merge any new companies from the database that aren't in local storage
-            initialCompanies.forEach(company => {
-                if (!companies.includes(company)) {
-                    companies.push(company);
+            // Company selection change
+            companySelect.addEventListener('change', function() {
+                if (existingKbSection.classList.contains('hidden') === false) {
+                    loadKnowledgeBases();
                 }
             });
             
-            // Update local storage with merged list
-            localStorage.setItem('chatbotCompanies', JSON.stringify(companies));
+            // "Use Existing" button click
+            useExistingBtn.addEventListener('click', function() {
+                existingKbSection.classList.remove('hidden');
+                loadKnowledgeBases();
+            });
             
-            // Populate the dropdown
-            const companySelect = document.getElementById('company');
-            if (companySelect) {
-                // Clear existing options
-                companySelect.innerHTML = '';
+            // "Create New" button click
+            createNewBtn.addEventListener('click', function() {
+                const selectedCompany = companySelect.value;
+                window.location.href = `/create-knowledge-base/?company=${encodeURIComponent(selectedCompany)}`;
+            });
+            
+            // Generate Excel Report button
+            generateReportBtn.addEventListener('click', function() {
+                const company = document.getElementById('company').value;
+                const kbSelect = document.getElementById('kb-select');
                 
-                // Add options for each company
-                companies.forEach(company => {
-                    const option = document.createElement('option');
-                    option.value = company;
-                    option.textContent = company;
-                    companySelect.appendChild(option);
+                if (!company) {
+                    showAlert('Please select a company first.', 'error');
+                    return;
+                }
+                
+                if (!kbSelect.value) {
+                    showAlert('Please select a knowledge base first.', 'error');
+                    return;
+                }
+                
+                // Show loading indicator
+                // First check if showAlert is defined, if not create a simple implementation
+                {% comment %} if (typeof showAlert !== 'function') {
+                    function showAlert(message, type) {
+                        console.log(`${type}: ${message}`);
+                        const alertDiv = document.createElement('div');
+                        alertDiv.className = `p-4 mb-3 rounded-md animate-fade-in ${
+                            type === 'success' ? 'bg-green-100 text-green-800 border border-green-200' : 
+                            type === 'error' ? 'bg-red-100 text-red-800 border border-red-200' : 
+                            'bg-blue-100 text-blue-700 border border-blue-200'
+                        }`;
+                        alertDiv.textContent = message;
+                        
+                        // Add to page if there's a messages container
+                        const messagesContainer = document.querySelector('.messages-container');
+                        if (messagesContainer) {
+                            messagesContainer.appendChild(alertDiv);
+                            // Auto-remove after 5 seconds
+                            setTimeout(() => alertDiv.remove(), 5000);
+                        } else {
+                            // Fallback - use alert
+                            alert(`${type.toUpperCase()}: ${message}`);
+                        }
+                    }
+                } {% endcomment %}
+                
+                showAlert('Generating Excel report... This may take a minute.', 'info');
+                
+                fetch('/generate-report/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: JSON.stringify({
+                        company: company,
+                        kb_name: kbSelect.options[kbSelect.selectedIndex].text,
+                        report_type: 'excel'
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showAlert('Excel report generated successfully!', 'success');
+                        
+                        // Create download link for the report
+                        const downloadPath = data.report_path;
+                        const downloadUrl = `/download-report/${encodeURIComponent(downloadPath)}/`;
+                        
+                        // Create and trigger download
+                        window.location.href = downloadUrl;
+                    } else {
+                        showAlert(`Error: ${data.message}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showAlert('An error occurred. Please try again.', 'error');
                 });
-            }
+            });
+             // Company selection change
+                companySelect.addEventListener('change', function() {
+                    console.log('Company changed to:', companySelect.value);
+                    if (!existingKbSection.classList.contains('hidden')) {
+                        loadKnowledgeBases();
+                    }
+            });
             
-            // Add functionality to add new companies
-            const addCompanyForm = document.getElementById('add-company-form');
-            if (addCompanyForm) {
-                addCompanyForm.addEventListener('submit', function(e) {
-                    e.preventDefault();
-                    const newCompanyInput = document.getElementById('new-company-input');
-                    const newCompany = newCompanyInput.value.trim();
-                    
-                    if (newCompany && !companies.includes(newCompany)) {
-                        // Add to array
-                        companies.push(newCompany);
-                        
-                        // Update local storage
-                        localStorage.setItem('chatbotCompanies', JSON.stringify(companies));
-                        
-                        // Add to dropdown
+            // Send message functionality
+            sendMessageBtn.addEventListener('click', sendMessage);
+            userInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+
+             // Add company form submission
+            document.getElementById('add-company-form').addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const companyName = document.getElementById('new-company-input').value.trim();
+                if (!companyName) {
+                    showAlert('Please enter a company name', 'error');
+                    return;
+                }
+                
+                // Create form data
+                const formData = new FormData();
+                formData.append('company_name', companyName);
+                
+                // Send Ajax request
+                fetch('/add-company/', {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken')
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Add option to select dropdown
                         const option = document.createElement('option');
-                        option.value = newCompany;
-                        option.textContent = newCompany;
-                        companySelect.appendChild(option);
+                        option.value = data.company_name;
+                        option.textContent = data.company_name;
+                        document.getElementById('company').appendChild(option);
                         
                         // Select the new company
-                        companySelect.value = newCompany;
+                        document.getElementById('company').value = data.company_name;
                         
                         // Clear input
-                        newCompanyInput.value = '';
+                        document.getElementById('new-company-input').value = '';
+                        
+                        // Show success message
+                        showAlert(data.message, 'success');
+                    } else {
+                        showAlert(data.message, 'error');
                     }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showAlert('An error occurred. Please try again.', 'error');
                 });
-            }
+            });
         });
     </script>
 </body>

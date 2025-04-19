@@ -101,19 +101,51 @@ def index(request):
     """
     View function for the home page of the chatbot.
     """
-    # Get list of companies for the dropdown
-    companies = list(KnowledgeBase.objects.values_list('company', flat=True).distinct())
+    # Get list of companies from the database
+    from .models import Company
+    companies = list(Company.objects.values_list('name', flat=True))
     
     # Default if no companies exist
     if not companies:
-        companies = ["Central Bank of Bahrain"]
-    
+        # Add default company if none exist
+        default_company = "Central Bank of Bahrain"
+        Company.objects.create(name=default_company)
+        companies = [default_company]
+
     context = {
         'companies': companies,
-        'companies_json': json.dumps(companies),  # Pass as JSON for JavaScript
     }
     return render(request, 'index.html', context)
 
+def add_company(request):
+    """Add a new company to the system"""
+    if request.method == 'POST':
+        try:
+            # Get company name from form
+            company_name = request.POST.get('company_name', '').strip()
+            
+            if not company_name:
+                return JsonResponse({'success': False, 'message': 'Company name is required'})
+            
+            # Check if company already exists
+            from .models import Company
+            if Company.objects.filter(name=company_name).exists():
+                return JsonResponse({'success': False, 'message': 'Company already exists'})
+            
+            # Create new company (directories are created in the save method)
+            company = Company.objects.create(name=company_name)
+            
+            return JsonResponse({
+                'success': True, 
+                'message': f'Company "{company_name}" added successfully',
+                'company_name': company_name
+            })
+            
+        except Exception as e:
+            logger.error(f"Error adding company: {e}")
+            return JsonResponse({'success': False, 'message': f"Error: {str(e)}"})
+    
+    return JsonResponse({'success': False, 'message': 'Invalid request method'})
 
 
 def create_knowledge_base(request):
@@ -121,6 +153,11 @@ def create_knowledge_base(request):
     View function to create a new knowledge base
     """
     selected_company = request.GET.get('company', 'Default Company')
+
+     # Ensure company exists
+    from .models import Company
+    if not Company.objects.filter(name=selected_company).exists():
+        Company.objects.create(name=selected_company)
     
     if request.method == 'POST':
         kb_form = CreateKBForm(request.POST, company=selected_company)
@@ -157,15 +194,17 @@ def create_knowledge_base(request):
                 
                 # Create vector store
                 try:
-                    from .report_generator import create_vector_store1
+                    from .report_generator1 import create_vector_store1
                     retriever = create_vector_store1(files, sanitized_kb_name, selected_company)
                     if retriever is None:
                         messages.error(request, "Failed to create vector store. Check logs for details.")
                     else:
-                        messages.success(request, f"Knowledge base '{kb.name}' created successfully with {len(files)} files.")
+                        messages.success(request, f"Knowledge base '{kb.name}' created successfully with {len(files)} files for company '{new_company}'.")
                 except Exception as e:
                     logger.error(f"Error creating vector store: {e}")
                     messages.error(request, f"Error creating knowledge base: {str(e)}")
+
+
                 
                 return redirect('index')
             except Exception as e:
@@ -177,9 +216,8 @@ def create_knowledge_base(request):
         'form': kb_form,
         'selected_company': selected_company
     }
-     # Include success message with the new company name
-    messages.success(request, f"Knowledge base '{kb.name}' created successfully with {len(files)} files for company '{new_company}'.")
-    return render(request, 'create_kb.html', context,index)
+    return render(request, 'create_kb.html', context)
+
 
 def get_knowledge_bases(request):
     """AJAX view to get knowledge bases for a company"""
@@ -189,12 +227,16 @@ def get_knowledge_bases(request):
     
     if company:
         folder_path = "media/vector_stores/" + company
+        
+        # Check if directory exists
+        if not os.path.exists(folder_path):
+            # Create directory if it doesn't exist
+            os.makedirs(folder_path)
+            return JsonResponse({'knowledge_bases': []})
+            
         file_names = os.listdir(folder_path)
-
-        #knowledge_bases = KnowledgeBase.objects.filter(company=company).values('id', 'name')
         result = {'knowledge_bases': file_names}
         print(f"Returning {len(file_names)} knowledge bases: {result}")
-        print("string" , JsonResponse(result))
         return JsonResponse(result)
     else:
         print("No company provided, returning empty list")
