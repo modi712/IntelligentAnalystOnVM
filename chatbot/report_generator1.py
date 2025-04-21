@@ -289,7 +289,7 @@ def runquery(query_text, slide_index, shape_index, page_num, paragraph_index, re
                     else:
                         shape.text_frame.text = response
                 
-                    text = re.sub(r'\*\*(.*?)\*(?!\*)', r'**\1**', text)
+                    
                     return True
         return False
     except Exception as e:
