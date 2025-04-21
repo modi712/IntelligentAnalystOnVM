@@ -11,6 +11,7 @@ import os
 import logging
 from django.shortcuts import get_object_or_404,redirect
 import json
+from openpyxl import load_workbook
 
 
 logger = logging.getLogger(__name__)
@@ -244,66 +245,6 @@ def get_knowledge_bases(request):
 
 
 
-# # def generate_report(request):
-#     """Handle report generation requests"""
-#     if request.method == 'POST':
-#         try:
-#             # Get parameters from the request
-#             company_name = request.POST.get('company', '')
-#             kb_id = request.POST.get('kb_id', None)
-            
-#             if not company_name:
-#                 return JsonResponse({'success': False, 'message': 'Company name is required'})
-            
-#             # Check if we're using an existing KB or creating a new one
-#             if kb_id:
-#                 # Using existing KB
-#                 kb = get_object_or_404(KnowledgeBase, id=kb_id)
-#                 kb_name = kb.name
-                
-#                 # Generate report from KB
-#                 result = generate_report_from_kb(company_name, kb_name)
-                
-#                 if result['success']:
-#                     # Return the path to the generated report for download
-#                     return JsonResponse({
-#                         'success': True, 
-#                         'message': result['message'],
-#                         'report_url': f"/download-report/{os.path.basename(result['report_path'])}/",
-#                     })
-#                 else:
-#                     return JsonResponse({'success': False, 'message': result['message']})
-                
-#             else:
-#                 # Check if files were uploaded
-#                 files = request.FILES.getlist('files')
-#                 if not files:
-#                     return JsonResponse({'success': False, 'message': 'No files uploaded'})
-                
-#                 # Generate KB name
-#                 import datetime
-#                 kb_name = f"{company_name.replace(' ', '')}{datetime.date.today().strftime('%Y%m%d')}"
-                
-#                 # Generate report from files
-#                 result = generate_report_from_files(company_name, kb_name, files)
-                
-#                 if result['success']:
-#                     # Return the path to the generated report for download
-#                     return JsonResponse({
-#                         'success': True, 
-#                         'message': result['message'],
-#                         'report_url': f"/download-report/{os.path.basename(result['report_path'])}/",
-#                     })
-#                 else:
-#                     return JsonResponse({'success': False, 'message': result['message']})
-                
-#         except Exception as e:
-#             logger.error(f"Error generating report: {e}")
-#             return JsonResponse({'success': False, 'message': f"Error: {str(e)}"})
-    
-#     # If not a POST request, return error
-#     return JsonResponse({'success': False, 'message': 'Invalid request method'})
-
 def generate_report(request):
     """
     View function to generate a report for a knowledge base
@@ -326,6 +267,16 @@ def generate_report(request):
             # Generate the requested report type
             if report_type == 'excel':
                 result = generate_excel_report_from_kb(company_name, kb_name)
+
+             # If successful, save the report information
+            if result['success']:
+                from .models import Report
+                Report.objects.create(
+                    company=company_name,
+                    kb_name=kb_name,
+                    report_path=result['report_path'],
+                    report_type=report_type
+                )
             
             # Return the result
             return JsonResponse(result)
@@ -341,36 +292,123 @@ def generate_report(request):
             'success': False,
             'message': 'Invalid request method'
         }, status=405)
+    
+
+# Add this new function
+
+def get_reports(request):
+    """
+    View function to get all generated reports
+    """
+    try:
+        from .models import Report
+        reports = Report.objects.all()
+        
+        reports_data = []
+        for report in reports:
+            reports_data.append({
+                'id': report.id,
+                'company': report.company,
+                'kb_name': report.kb_name,
+                'report_type': report.report_type,
+                'created_at': report.created_at.strftime('%Y-%m-%d %H:%M'),
+                'report_path': report.report_path
+            })
+        
+        return JsonResponse({'success': True, 'reports': reports_data})
+    except Exception as e:
+        logger.error(f"Error fetching reports: {e}")
+        return JsonResponse({
+            'success': False,
+            'message': f"Error: {str(e)}"
+        })
+    
+def get_report_content(request, report_path):
+    """
+    View function to read Excel report content and return it as JSON
+    """
+    try:
+        # Check if file exists
+        if not os.path.exists(report_path):
+            return JsonResponse({
+                'success': False,
+                'message': 'Report file not found'
+            }, status=404)
+        
+        # Check if file is an Excel file
+        if not report_path.endswith('.xlsx'):
+            return JsonResponse({
+                'success': False,
+                'message': 'File is not an Excel report'
+            }, status=400)
+        
+        # Load the workbook
+        wb = load_workbook(filename=report_path)
+        ws = wb.active
+        
+        # Extract the company name from the title cell (A1)
+        title = ws['A1'].value
+        company_name = title.split(' - ')[0] if ' - ' in title else 'Company'
+        
+        # Initialize data structure
+        report_data = {
+            'title': title,
+            'company': company_name,
+            'categories': []
+        }
+        
+        # Process the rows and collect the data
+        current_category = None
+        category_questions = []
+        
+        # Start from row 4 (after headers)
+        for row in range(4, ws.max_row + 1):
+            # Check if this is a category row (merged cells)
+            merged_cell_ranges = [str(cell_range) for cell_range in ws.merged_cells.ranges]
+            current_cell = f'A{row}:C{row}'
+            
+            if current_cell in merged_cell_ranges:
+                # If we already have a category, add it to the report data
+                if current_category and category_questions:
+                    report_data['categories'].append({
+                        'name': current_category,
+                        'questions': category_questions
+                    })
+                
+                # Start a new category
+                current_category = ws[f'A{row}'].value
+                category_questions = []
+            else:
+                # Regular question row
+                question = ws[f'B{row}'].value
+                answer = ws[f'C{row}'].value
+                
+                if question and answer:
+                    category_questions.append({
+                        'question': question,
+                        'answer': answer
+                    })
+        
+        # Add the last category if there is one
+        if current_category and category_questions:
+            report_data['categories'].append({
+                'name': current_category,
+                'questions': category_questions
+            })
+        
+        return JsonResponse({
+            'success': True,
+            'report_data': report_data
+        })
+        
+    except Exception as e:
+        logger.error(f"Error reading report content: {e}")
+        return JsonResponse({
+            'success': False,
+            'message': f"Error reading report content: {str(e)}"
+        }, status=500)
 
 
-# def download_report(request, report_path):
-#     """Handle report download requests"""
-#     try:
-#         # Search for the report in the report directory
-#         from django.conf import settings
-#         import os
-        
-#         # Find the full path of the report
-#         for root, dirs, files in os.walk(settings.MEDIA_ROOT):
-#             for file in files:
-#                 if file == report_path:
-#                     file_path = os.path.join(root, file)
-                    
-#                     # Set the appropriate content type based on file extension
-#                     content_type = 'application/pdf' if file_path.lower().endswith('.pdf') else 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-                    
-#                     response = FileResponse(open(file_path, 'rb'), content_type=content_type)
-#                     response['Content-Disposition'] = f'attachment; filename="{os.path.basename(file_path)}"'
-#                     return response
-        
-#         # If report not found
-#         messages.error(request, f"Report not found: {report_path}")
-#         return redirect('index')
-        
-#     except Exception as e:
-#         logger.error(f"Error downloading report: {e}")
-#         messages.error(request, f"Error downloading report: {str(e)}")
-#         return redirect('index')
     
 
 def download_report(request, report_path):
@@ -396,10 +434,20 @@ def download_report(request, report_path):
         }
         
         content_type = content_types.get(file_extension, 'application/octet-stream')
+
+         # Get view parameter - if true, try to display in browser
+        view = request.GET.get('view', 'false').lower() == 'true'
         
         # Create a FileResponse
         response = FileResponse(open(report_path, 'rb'), content_type=content_type)
-        response['Content-Disposition'] = f'attachment; filename="{os.path.basename(report_path)}"'
+
+         # Set the content disposition based on the view parameter
+        if view and file_extension == '.pdf':
+            # PDF files can be displayed in-browser
+            response['Content-Disposition'] = f'inline; filename="{os.path.basename(report_path)}"'
+        else:
+            # All other files should be downloaded
+            response['Content-Disposition'] = f'attachment; filename="{os.path.basename(report_path)}"'
         
         return response
         

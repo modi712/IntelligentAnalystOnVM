@@ -24,6 +24,89 @@
         .hidden {
             display: none;
         }
+        .report-row-animation {
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            0% { opacity: 0; transform: translateY(10px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+
+        table {
+            border-collapse: separate;
+            border-spacing: 0;
+            width: 100%;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        th:first-child {
+            border-top-left-radius: 0.5rem;
+        }
+
+        th:last-child {
+            border-top-right-radius: 0.5rem;
+        }
+
+        tr:last-child td:first-child {
+            border-bottom-left-radius: 0.5rem;
+        }
+
+        tr:last-child td:last-child {
+            border-bottom-right-radius: 0.5rem;
+        }
+
+        /* Add these to your existing CSS */
+        #report-content-table tr:nth-child(2n+1):not(.bg-gray-100) {
+            background-color: rgba(249, 250, 251, 0.8);
+        }
+
+        #report-content-table td {
+            vertical-align: top;
+            padding-top: 0.75rem;
+            padding-bottom: 0.75rem;
+        }
+
+        #report-display-section {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+
+        .category-row {
+            font-weight: 600;
+            background-color: #f3f4f6;
+        }
+
+        #report-content-table td ul {
+            margin: 0;
+            padding-left: 1.5rem;
+        }
+
+        #report-content-table td li {
+            margin-bottom: 0.5rem;
+        }
+
+        #report-content-table td strong {
+            font-weight: 600;
+        }
+
+        #chat-messages {
+            line-height: 1.5;
+        }
+
+        #chat-messages ul {
+            padding-left: 1.5rem;
+            margin: 0.5rem 0;
+        }
+
+        #chat-messages li {
+            margin-bottom: 0.3rem;
+        }
+
+        #chat-messages strong {
+            font-weight: 600;
+        }
     </style>
 </head>
 <body class="w-full min-h-screen bg-gradient-to-b from-gray-100 to-gray-300 p-4 md:p-8">
@@ -135,12 +218,79 @@
                 </div>
             </div> 
         </div>
+
+<!-- Reports History Section -->
+        <div class="max-w-7xl mx-auto mt-8">
+            <div class="glass-panel rounded-xl overflow-hidden animate-fade-up" style="animation-delay: 0.4s;">
+                <div class="pb-3 p-6 flex justify-between items-center">
+                    <h2 class="text-xl font-semibold text-gray-800">Generated Reports</h2>
+                    <button id="refresh-reports" class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-blue-100 text-blue-700 shadow hover:bg-blue-200 h-8 px-3 py-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
+                        </svg>
+                        Refresh
+                    </button>
+                </div>
+                <div class="p-6 pt-0">
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Company</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Knowledge Base</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="reports-table-body" class="bg-white divide-y divide-gray-200">
+                                <tr>
+                                    <td colspan="5" class="px-6 py-4 text-center text-sm text-gray-500">Loading reports...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="no-reports-message" class="hidden text-center py-8 text-gray-500">
+                        No reports found. Generate a report to see it here.
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- Add this after the Reports History table section -->
+        <div id="report-display-section" class="max-w-7xl mx-auto mt-8 hidden">
+            <div class="glass-panel rounded-xl overflow-hidden animate-fade-up" style="animation-delay: 0.5s;">
+                <div class="pb-3 p-6 flex justify-between items-center">
+                    <h2 id="report-title" class="text-xl font-semibold text-gray-800">Investment Analysis Report</h2>
+                    <button id="close-report" class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-gray-200 text-gray-700 shadow hover:bg-gray-300 h-8 px-3 py-2">
+                        Close Report
+                    </button>
+                </div>
+                <div class="p-6 pt-0">
+                    <div class="overflow-x-auto">
+                        <table id="report-content-table" class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-100">
+                                <tr>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4">Category</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/3">Question</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-5/12">Answer</th>
+                                </tr>
+                            </thead>
+                            <tbody id="report-content-body" class="bg-white divide-y divide-gray-200">
+                                <tr>
+                                    <td colspan="3" class="px-6 py-4 text-center text-sm text-gray-500">Loading report content...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
 
          // Declare global variables at the top
-        let companySelect, useExistingBtn, createNewBtn, existingKbSection, kbSelect, generateReportBtn, userInput, sendMessageBtn, chatMessages;
+        let companySelect, useExistingBtn, createNewBtn, existingKbSection, kbSelect, generateReportBtn, userInput, sendMessageBtn, chatMessages,refreshReportsBtn, reportsTableBody, noReportsMessage;
 
 
         // Function to get CSRF token from cookies
@@ -161,7 +311,7 @@
 
 
             // Function to show alert messages
-            {% comment %} function showAlert(message, type) {
+             function showAlert(message, type) {
                 console.log(`${type}: ${message}`);
                 const alertDiv = document.createElement('div');
                 alertDiv.className = `p-4 mb-3 rounded-md animate-fade-in ${
@@ -169,10 +319,10 @@
                     type === 'error' ? 'bg-red-100 text-red-800 border border-red-200' : 
                     'bg-blue-100 text-blue-700 border border-blue-200'
                 }`;
-                alertDiv.textContent = message; {% endcomment %}
+                alertDiv.textContent = message; 
 
              // Add to page if there's a messages container
-                {% comment %} const messagesContainer = document.querySelector('.messages-container');
+                const messagesContainer = document.querySelector('.messages-container');
                 if (messagesContainer) {
                     messagesContainer.appendChild(alertDiv);
                     // Auto-remove after 5 seconds
@@ -181,7 +331,7 @@
                     // Fallback - use alert
                     alert(`${type.toUpperCase()}: ${message}`);
                 }
-            } {% endcomment %}
+            } 
 
 
             // Function to load knowledge bases for selected company
@@ -295,7 +445,7 @@
                     // Display the bot response
                     const botDiv = document.createElement('div');
                     botDiv.className = 'mb-3 bg-gray-100 p-2 rounded';
-                    botDiv.innerHTML = `<span class="font-bold">Bot:</span> ${data.response}`;
+                    botDiv.innerHTML = `<span class="font-bold">Bot:</span> ${formatMarkdown(data.response)}`;
                     chatMessages.appendChild(botDiv);
                     chatMessages.scrollTop = chatMessages.scrollHeight;
                 })
@@ -308,6 +458,203 @@
                     chatMessages.scrollTop = chatMessages.scrollHeight;
                 });
             }
+
+
+            // Function to load reports
+            function loadReports() {
+                fetch('/get-reports/', {
+                    method: 'GET',
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken')
+                    }
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success && data.reports.length > 0) {
+                        // Display reports
+                        reportsTableBody.innerHTML = '';
+                        noReportsMessage.classList.add('hidden');
+                        
+                        data.reports.forEach(report => {
+                            const row = document.createElement('tr');
+                            row.className = 'hover:bg-gray-50';
+                            
+                            row.innerHTML = `
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${report.company}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${report.kb_name}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${report.report_type.toUpperCase()}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${report.created_at}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                    <button class="text-blue-600 hover:text-blue-900 mr-3 view-report" data-path="${report.report_path}">View</button>
+                                    <button class="text-green-600 hover:text-green-900 download-report" data-path="${report.report_path}">Download</button>
+                                </td>
+                            `;
+                            
+                            reportsTableBody.appendChild(row);
+                        });
+
+
+                        // Update the view-report event listeners in loadReports function
+                        document.querySelectorAll('.view-report').forEach(button => {
+                            button.addEventListener('click', function() {
+                                const path = this.getAttribute('data-path');
+                                // Get report company name and KB name for the title
+                                const row = this.closest('tr');
+                                const companyName = row.querySelector('td:first-child').textContent;
+                                const kbName = row.querySelector('td:nth-child(2)').textContent;
+                                
+                                // Show loading state
+                                document.getElementById('report-content-body').innerHTML = `
+                                    <tr>
+                                        <td colspan="3" class="px-6 py-4 text-center text-sm text-gray-500">
+                                            <div class="flex justify-center items-center">
+                                                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                </svg>
+                                                Loading report content...
+                                            </div>
+                                        </td>
+                                    </tr>
+                                `;
+                                
+                                // Set the report title
+                                document.getElementById('report-title').textContent = `${companyName} - Investment Analysis Report`;
+                                
+                                // Show the report display section
+                                document.getElementById('report-display-section').classList.remove('hidden');
+                                
+                                // Scroll to the report section
+                                document.getElementById('report-display-section').scrollIntoView({ behavior: 'smooth' });
+                                
+                                // Fetch the report content
+                                fetch(`/get-report-content/${encodeURIComponent(path)}/`, {
+                                    method: 'GET',
+                                    headers: {
+                                        'X-CSRFToken': getCookie('csrftoken')
+                                    }
+                                })
+                                .then(response => {
+                                    if (!response.ok) {
+                                        throw new Error('Network response was not ok');
+                                    }
+                                    return response.json();
+                                })
+                                // Then update your report content display code
+                                .then(data => {
+                                    if (data.success) {
+                                        // Clear existing table content
+                                        const reportContentBody = document.getElementById('report-content-body');
+                                        reportContentBody.innerHTML = '';
+                                        
+                                        // Loop through categories and questions to populate the table
+                                        data.report_data.categories.forEach(category => {
+                                            // Add category row
+                                            const categoryRow = document.createElement('tr');
+                                            categoryRow.className = 'bg-gray-100';
+                                            categoryRow.innerHTML = `
+                                                <td colspan="3" class="px-6 py-3 font-medium text-gray-900">${category.name}</td>
+                                            `;
+                                            reportContentBody.appendChild(categoryRow);
+                                            
+                                            // Add question and answer rows
+                                            category.questions.forEach(item => {
+                                                const questionRow = document.createElement('tr');
+                                                questionRow.innerHTML = `
+                                                    <td class="px-6 py-4 text-sm text-gray-500"></td>
+                                                    <td class="px-6 py-4 text-sm text-gray-900">${item.question}</td>
+                                                    <td class="px-6 py-4 text-sm text-gray-600">${formatMarkdown(item.answer)}</td>
+                                                `;
+                                                reportContentBody.appendChild(questionRow);            
+                                            });
+                                        });
+                                    } else {
+                                        // Show error
+                                        document.getElementById('report-content-body').innerHTML = `
+                                            <tr>
+                                                <td colspan="3" class="px-6 py-4 text-center text-sm text-red-500">
+                                                    Error: ${data.message}
+                                                </td>
+                                            </tr>
+                                        `;
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error('Error loading report content:', error);
+                                    document.getElementById('report-content-body').innerHTML = `
+                                        <tr>
+                                            <td colspan="3" class="px-6 py-4 text-center text-sm text-red-500">
+                                                Error loading report content. Please try again.
+                                            </td>
+                                        </tr>
+                                    `;
+                                });
+                            });
+                        });
+                        // Add event listeners for download buttons                        
+                        document.querySelectorAll('.download-report').forEach(button => {
+                            button.addEventListener('click', function() {
+                                const path = this.getAttribute('data-path');
+                                const downloadUrl = `/download-report/${encodeURIComponent(path)}/`;
+                                window.location.href = downloadUrl;
+                            });
+                        });
+                    } else {
+                        // No reports found
+                        reportsTableBody.innerHTML = '';
+                        noReportsMessage.classList.remove('hidden');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading reports:', error);
+                    reportsTableBody.innerHTML = `
+                        <tr>
+                            <td colspan="5" class="px-6 py-4 text-center text-sm text-red-500">
+                                Error loading reports. Please try again.
+                            </td>
+                        </tr>
+                    `;
+                });
+            }
+
+
+            // Add this function to your JavaScript to process markdown text
+            function formatMarkdown(text) {
+                if (!text) return '';
+                
+                // Process bullet points
+                text = text.replace(/•\s(.*?)(?=(\n•|\n\n|$))/gs, '<li>$1</li>');
+                text = text.replace(/\*\s(.*?)(?=(\n\*|\n\n|$))/gs, '<li>$1</li>');
+                text = text.replace(/\-\s(.*?)(?=(\n\-|\n\n|$))/gs, '<li>$1</li>');
+                
+                // Add list tags where appropriate
+                if (text.includes('<li>')) {
+                    text = '<ul>' + text + '</ul>';
+                    // Fix nested lists
+                    text = text.replace(/<\/li><ul>/g, '<ul>');
+                    text = text.replace(/<\/ul><li>/g, '</ul></li><li>');
+                }
+                
+                // Process bold text
+                text = text.replace(/\*\*(.*?)\*\*?/g, '<strong>$1</strong>');
+                
+                // Process line breaks
+                text = text.replace(/\n\n/g, '<br><br>');
+                text = text.replace(/\n/g, '<br>');
+                
+                // Fix duplicate line breaks
+                text = text.replace(/<br><br><br>/g, '<br><br>');
+                
+                return text;
+            }
+
+
+
 
 
 
@@ -328,6 +675,20 @@
             userInput = document.getElementById('user-input');
             sendMessageBtn = document.getElementById('send-message');
             chatMessages = document.getElementById('chat-messages');
+            refreshReportsBtn = document.getElementById('refresh-reports');
+            reportsTableBody = document.getElementById('reports-table-body');
+            noReportsMessage = document.getElementById('no-reports-message');
+
+
+            refreshReportsBtn.addEventListener('click', loadReports);
+
+            // Load reports initially
+            loadReports();
+
+            document.getElementById('close-report').addEventListener('click', function() {
+                document.getElementById('report-display-section').classList.add('hidden');
+            });
+
 
             // Process Django messages to add close buttons
             const djangoMessages = document.querySelectorAll('.messages-container > div');
@@ -439,31 +800,6 @@
                     return;
                 }
                 
-                // Show loading indicator
-                // First check if showAlert is defined, if not create a simple implementation
-                {% comment %} if (typeof showAlert !== 'function') {
-                    function showAlert(message, type) {
-                        console.log(`${type}: ${message}`);
-                        const alertDiv = document.createElement('div');
-                        alertDiv.className = `p-4 mb-3 rounded-md animate-fade-in ${
-                            type === 'success' ? 'bg-green-100 text-green-800 border border-green-200' : 
-                            type === 'error' ? 'bg-red-100 text-red-800 border border-red-200' : 
-                            'bg-blue-100 text-blue-700 border border-blue-200'
-                        }`;
-                        alertDiv.textContent = message;
-                        
-                        // Add to page if there's a messages container
-                        const messagesContainer = document.querySelector('.messages-container');
-                        if (messagesContainer) {
-                            messagesContainer.appendChild(alertDiv);
-                            // Auto-remove after 5 seconds
-                            setTimeout(() => alertDiv.remove(), 5000);
-                        } else {
-                            // Fallback - use alert
-                            alert(`${type.toUpperCase()}: ${message}`);
-                        }
-                    }
-                } {% endcomment %}
                 
                 showAlert('Generating Excel report... This may take a minute.', 'info');
                 
@@ -480,20 +816,27 @@
                     })
                 })
                 .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showAlert('Excel report generated successfully!', 'success');
-                        
-                        // Create download link for the report
-                        const downloadPath = data.report_path;
-                        const downloadUrl = `/download-report/${encodeURIComponent(downloadPath)}/`;
-                        
-                        // Create and trigger download
-                        window.location.href = downloadUrl;
-                    } else {
-                        showAlert(`Error: ${data.message}`, 'error');
-                    }
-                })
+                        .then(data => {
+                            if (data.success) {
+                                showAlert('Excel report generated successfully!', 'success');
+                                
+                                // Create download link for the report
+                                const downloadPath = data.report_path;
+                                const downloadUrl = `/download-report/${encodeURIComponent(downloadPath)}/`;
+                                
+                                // Create and trigger download
+                                window.location.href = downloadUrl;
+
+                                // Update the reports list after a delay
+                                setTimeout(() => {
+                                    loadReports();
+                                }, 3000);
+                                
+                            } else {
+                                showAlert(`Error: ${data.message}`, 'error');
+                            }
+                        })
+                    
                 .catch(error => {
                     console.error('Error:', error);
                     showAlert('An error occurred. Please try again.', 'error');
@@ -563,6 +906,7 @@
                     showAlert('An error occurred. Please try again.', 'error');
                 });
             });
+
         });
     </script>
 </body>

@@ -178,6 +178,13 @@ def generate_excel_report(company_name, kb_name, retriever):
             ws[f'A{row}'] = ""  # No category in question rows
             ws[f'B{row}'] = question
             ws[f'C{row}'] = answer
+            ws[f'C{row}'].alignment = Alignment(wrap_text=True, vertical='top')
+
+            # Add these styles to make the text more readable
+            ws[f'C{row}'].font = Font(name='Calibri', size=10)
+
+            # Adjust row height for better readability
+            ws.row_dimensions[row].height = max(18, min(40, 15 * (answer.count('\n') + 1)))
             
             # Apply borders
             for col in ['A', 'B', 'C']:
@@ -281,7 +288,8 @@ def runquery(query_text, slide_index, shape_index, page_num, paragraph_index, re
                         shape.text_frame.paragraphs[paragraph_index].text = response
                     else:
                         shape.text_frame.text = response
-                    
+                
+                    text = re.sub(r'\*\*(.*?)\*(?!\*)', r'**\1**', text)
                     return True
         return False
     except Exception as e:
@@ -494,7 +502,15 @@ def run_query(query, retriever):
         
         Based on the following context information, provide a well-structured, professional response to the query.
         Make your response comprehensive yet concise, suitable for a business presentation slide.
-        Format your response with bullet points where appropriate.
+        
+        Important formatting requirements:
+        1. Start with a brief summary (1-2 sentences)
+        2. Use bullet points for key information (• format)
+        3. If providing data or statistics, present them clearly
+        4. For any multi-part answers, use numbered lists
+        5. Bold important terms or figures using markdown (**term**)
+        6. Use short paragraphs with clear spacing between points
+        7. Avoid long, dense paragraphs of text
         
         Context: {context}
         
@@ -507,7 +523,19 @@ def run_query(query, retriever):
     # Create and run chain
     chain = LLMChain(llm=llm, prompt=prompt)
     response = chain.invoke({"context": context, "query": query})
-    return response['text'].strip()
+
+    # Process response for better formatting in Excel
+    text = response['text'].strip()
+
+    # Convert markdown bullets to proper bullet points for Excel
+    text = text.replace('\n• ', '\n• ')
+    text = text.replace('\n* ', '\n• ')
+    text = text.replace('\n- ', '\n• ')
+
+    # Ensure proper line breaks between bullet points
+    text = text.replace('\n\n• ', '\n• ')
+    
+    return text
 
 
 

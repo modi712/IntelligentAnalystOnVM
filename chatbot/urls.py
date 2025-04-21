@@ -18,6 +18,8 @@ urlpatterns = [
     path('create-knowledge-base/', views.create_knowledge_base, name='create_knowledge_base'),
     path('get-knowledge-bases/', views.get_knowledge_bases, name='get_knowledge_bases'),
     path('generate-report/', views.generate_report, name='generate_report'),
+    path('get-reports/', views.get_reports, name='get_reports'),
+    path('get-report-content/<path:report_path>/', views.get_report_content, name='get_report_content'),
     path('download-report/<path:report_path>/', views.download_report, name='download_report'),
 ]
 

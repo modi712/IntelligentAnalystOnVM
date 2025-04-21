@@ -49,3 +49,18 @@ class Company(models.Model):
             os.makedirs(vs_dir)
             
         return result
+    
+
+
+class Report(models.Model):
+    company = models.CharField(max_length=255)
+    kb_name = models.CharField(max_length=255)
+    report_path = models.CharField(max_length=1024)
+    report_type = models.CharField(max_length=50, default="excel")
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.company} - {self.kb_name} ({self.report_type}) - {self.created_at.strftime('%Y-%m-%d %H:%M')}"
