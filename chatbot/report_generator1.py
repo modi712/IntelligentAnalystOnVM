@@ -264,37 +264,37 @@ def generate_excel_report_from_kb(company_name, kb_name):
             'message': f"Error generating Excel report: {str(e)}"
         }
     
-def runquery(query_text, slide_index, shape_index, page_num, paragraph_index, retriever, ppt=None):
-    """Run a query and update a specific shape in the presentation"""
-    try:
-        # Get the response from the query
-        response = run_query(query_text, retriever)
+# def runquery(query_text, slide_index, shape_index, page_num, paragraph_index, retriever, ppt=None):
+#     """Run a query and update a specific shape in the presentation"""
+#     try:
+#         # Get the response from the query
+#         response = run_query(query_text, retriever)
         
-        # If no presentation is provided, just return the response
-        if ppt is None:
-            return response
+#         # If no presentation is provided, just return the response
+#         if ppt is None:
+#             return response
         
-        # Get the slide
-        if slide_index < len(ppt.slides):
-            slide = ppt.slides[slide_index]
+#         # Get the slide
+#         if slide_index < len(ppt.slides):
+#             slide = ppt.slides[slide_index]
             
-            # Update the shape
-            if shape_index < len(slide.shapes):
-                shape = slide.shapes[shape_index]
+#             # Update the shape
+#             if shape_index < len(slide.shapes):
+#                 shape = slide.shapes[shape_index]
                 
-                if hasattr(shape, 'text_frame'):
-                    # If paragraph_index is specified, update only that paragraph
-                    if paragraph_index < len(shape.text_frame.paragraphs):
-                        shape.text_frame.paragraphs[paragraph_index].text = response
-                    else:
-                        shape.text_frame.text = response
+#                 if hasattr(shape, 'text_frame'):
+#                     # If paragraph_index is specified, update only that paragraph
+#                     if paragraph_index < len(shape.text_frame.paragraphs):
+#                         shape.text_frame.paragraphs[paragraph_index].text = response
+#                     else:
+#                         shape.text_frame.text = response
                 
                     
-                    return True
-        return False
-    except Exception as e:
-        logger.error(f"Error in runquery: {e}")
-        return False
+#                     return True
+#         return False
+#     except Exception as e:
+#         logger.error(f"Error in runquery: {e}")
+#         return False
     
 
 def create_vector_store1(files, kb_name, company_name):

@@ -58,7 +58,6 @@
             border-bottom-right-radius: 0.5rem;
         }
 
-        /* Add these to your existing CSS */
         #report-content-table tr:nth-child(2n+1):not(.bg-gray-100) {
             background-color: rgba(249, 250, 251, 0.8);
         }
@@ -106,6 +105,19 @@
 
         #chat-messages strong {
             font-weight: 600;
+        }
+        #user-input {
+            min-height: 42px;
+            max-height: 200px;
+            transition: height 0.1s ease-in-out;
+            line-height: 1.5;
+            margin-bottom: 0.2rem;
+            margin-left:0.2rem
+        }
+
+        .chat-input-container {
+            display: flex;
+            align-items: flex-end; /* Align items to bottom */
         }
     </style>
 </head>
@@ -169,7 +181,7 @@
                     <div class="mt-4">
                        <form id="add-company-form" class="flex items-center space-x-2">
                             {% csrf_token %}
-                            <input type="text" id="new-company-input" placeholder="Add new company" class="border rounded px-2 py-1">
+                            <input type="text" id="new-company-input" placeholder="Add new company" class="border border-gray-500 rounded px-2 py-1">
                             <button type="submit" class="bg-blue-500 text-white px-3 py-1 rounded">Add</button>
                         </form>
                     </div>
@@ -178,7 +190,7 @@
                         <label class="text-sm font-medium text-gray-700">Knowledge Base</label>
                         <div class="grid grid-cols-2 gap-3">
                             <button id="use-existing-btn" class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-blue-500 text-white shadow hover:bg-blue-500/90 h-9 px-4 py-2">Use Existing</button>
-                            <button id="create-new-btn" class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border border-gray-300 bg-transparent shadow-sm hover:bg-gray-100 hover:text-gray-900 h-9 px-4 py-2">Create New</button>
+                            <button id="create-new-btn" class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border border-blue-600 bg-transparent shadow-sm hover:bg-gray-100 hover:text-gray-900 h-9 px-4 py-2">Create New</button>
                         </div>
                     </div>
                     
@@ -209,12 +221,12 @@
                     <div id="chat-messages" class="h-80 overflow-y-auto mb-4 p-4 border rounded-lg">
                         <p class="text-gray-500">Chat interface will be displayed here.</p>
                     </div>
-                    <div class="flex">
-                        <input id="user-input" type="text" class="flex-grow h-10 rounded-l-md border border-gray-300 bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Type your message here...">
-                        <button id="send-message" class="h-10 px-4 bg-blue-500 text-white rounded-r-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            Send
-                        </button>
-                    </div>
+                </div>
+                <div class="chat-input-container flex">
+                    <textarea id="user-input" class="flex-grow rounded-l-md border border-gray-300 bg-transparent px-1 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none overflow-auto" placeholder="Type your message here... (Shift+Enter for new line)" rows="1"></textarea>
+                    <button id="send-message" class="h-12 px-4 bg-blue-500 text-white rounded-r-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        Send
+                    </button>
                 </div>
             </div> 
         </div>
@@ -852,12 +864,18 @@
             
             // Send message functionality
             sendMessageBtn.addEventListener('click', sendMessage);
-            userInput.addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
+                userInput.addEventListener('keydown', function(e) {
+                // If Enter is pressed without Shift key
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault(); // Prevent default behavior (line break)
                     sendMessage();
                 }
+                setTimeout(() => {
+                        this.style.height = 'auto';
+                        const newHeight = Math.min(200, this.scrollHeight); // Cap at 200px height
+                        this.style.height = newHeight + 'px';
+                    }, 0);
             });
-
              // Add company form submission
             document.getElementById('add-company-form').addEventListener('submit', function(e) {
                 e.preventDefault();
