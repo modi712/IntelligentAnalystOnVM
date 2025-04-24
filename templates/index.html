@@ -208,8 +208,27 @@
                         Generate Report
                     </button> 
 
+                    {% comment %} <button id="generateQAReport" class="w-full inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-green-500 text-white shadow hover:bg-green-600 h-10 rounded-md px-8">
+                        Generate Q&A Report
+                    </button> {% endcomment %}
+                    {% comment %} <div class="mt-4 space-y-2">
+                        <label for="ground-truths-file" class="text-sm font-medium text-gray-700">
+                            Ground Truths File (Optional - For RAGAS Evaluation)
+                        </label>
+                        <div class="flex items-center">
+                            <input type="file" id="ground-truths-file" accept=".md,.txt" class="block w-full text-sm text-gray-500
+                                file:mr-4 file:py-2 file:px-4
+                                file:rounded-full file:border-0
+                                file:text-sm file:font-semibold
+                                file:bg-blue-50 file:text-blue-700
+                                hover:file:bg-blue-100">
+                        </div>
+                    <p class="text-xs text-gray-500">If provided, the report will include RAGAS evaluation metrics</p>
+                </div> {% endcomment %}
+
                     
                 </div>
+                
             </div>
 
             <!-- Chat Interface Panel -->
@@ -302,7 +321,7 @@
     <script>
 
          // Declare global variables at the top
-        let companySelect, useExistingBtn, createNewBtn, existingKbSection, kbSelect, generateReportBtn, userInput, sendMessageBtn, chatMessages,refreshReportsBtn, reportsTableBody, noReportsMessage;
+        let companySelect, useExistingBtn, createNewBtn, existingKbSection, kbSelect, generateReportBtn, userInput, sendMessageBtn, chatMessages,refreshReportsBtn, reportsTableBody, noReportsMessage,generateQAReportBtn;
 
 
         // Function to get CSRF token from cookies
@@ -515,11 +534,111 @@
                         document.querySelectorAll('.view-report').forEach(button => {
                             button.addEventListener('click', function() {
                                 const path = this.getAttribute('data-path');
-                                // Get report company name and KB name for the title
-                                const row = this.closest('tr');
-                                const companyName = row.querySelector('td:first-child').textContent;
-                                const kbName = row.querySelector('td:nth-child(2)').textContent;
-                                
+                                const reportType = this.closest('tr').querySelector('td:nth-child(3)').textContent.toLowerCase();
+
+                                // If this is a QA report, use a different display mode
+                                if (reportType === 'qa_excel') {
+                                    // Custom display for QA reports
+                                    displayQAReport(path);
+                                } else {
+                                    // Standard report display
+                                    // Get report company name and KB name for the title
+                                    const row = this.closest('tr');
+                                    const companyName = row.querySelector('td:first-child').textContent;
+                                    const kbName = row.querySelector('td:nth-child(2)').textContent;
+                                    
+                                    // Show loading state
+                                    document.getElementById('report-content-body').innerHTML = `
+                                        <tr>
+                                            <td colspan="3" class="px-6 py-4 text-center text-sm text-gray-500">
+                                                <div class="flex justify-center items-center">
+                                                    <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                    </svg>
+                                                    Loading report content...
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    `;
+                                    
+                                    // Set the report title
+                                    document.getElementById('report-title').textContent = `${companyName} - Investment Analysis Report`;
+                                    
+                                    // Show the report display section
+                                    document.getElementById('report-display-section').classList.remove('hidden');
+                                    
+                                    // Scroll to the report section
+                                    document.getElementById('report-display-section').scrollIntoView({ behavior: 'smooth' });
+                                    
+                                    // Fetch the report content
+                                    fetch(`/get-report-content/${encodeURIComponent(path)}/`, {
+                                        method: 'GET',
+                                        headers: {
+                                            'X-CSRFToken': getCookie('csrftoken')
+                                        }
+                                    })
+                                    .then(response => {
+                                        if (!response.ok) {
+                                            throw new Error('Network response was not ok');
+                                        }
+                                        return response.json();
+                                    })
+                                    // Then update your report content display code
+                                    .then(data => {
+                                        if (data.success) {
+                                            // Clear existing table content
+                                            const reportContentBody = document.getElementById('report-content-body');
+                                            reportContentBody.innerHTML = '';
+                                            
+                                            // Loop through categories and questions to populate the table
+                                            data.report_data.categories.forEach(category => {
+                                                // Add category row
+                                                const categoryRow = document.createElement('tr');
+                                                categoryRow.className = 'bg-gray-100';
+                                                categoryRow.innerHTML = `
+                                                    <td colspan="3" class="px-6 py-3 font-medium text-gray-900">${category.name}</td>
+                                                `;
+                                                reportContentBody.appendChild(categoryRow);
+                                                
+                                                // Add question and answer rows
+                                                category.questions.forEach(item => {
+                                                    const questionRow = document.createElement('tr');
+                                                    questionRow.innerHTML = `
+                                                        <td class="px-6 py-4 text-sm text-gray-500"></td>
+                                                        <td class="px-6 py-4 text-sm text-gray-900">${item.question}</td>
+                                                        <td class="px-6 py-4 text-sm text-gray-600">${formatMarkdown(item.answer)}</td>
+                                                    `;
+                                                    reportContentBody.appendChild(questionRow);            
+                                                });
+                                            });
+                                        } else {
+                                            // Show error
+                                            document.getElementById('report-content-body').innerHTML = `
+                                                <tr>
+                                                    <td colspan="3" class="px-6 py-4 text-center text-sm text-red-500">
+                                                        Error: ${data.message}
+                                                    </td>
+                                                </tr>
+                                            `;
+                                        }
+                                    })
+                                    .catch(error => {
+                                        console.error('Error loading report content:', error);
+                                        document.getElementById('report-content-body').innerHTML = `
+                                            <tr>
+                                                <td colspan="3" class="px-6 py-4 text-center text-sm text-red-500">
+                                                    Error loading report content. Please try again.
+                                                </td>
+                                            </tr>
+                                        `;
+                                    });
+                                }
+                            });    
+                        });
+
+                            // Add this function to handle QA report display
+                            function displayQAReport(path) {
                                 // Show loading state
                                 document.getElementById('report-content-body').innerHTML = `
                                     <tr>
@@ -529,22 +648,30 @@
                                                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                                 </svg>
-                                                Loading report content...
+                                                Loading Q&A report content...
                                             </div>
                                         </td>
                                     </tr>
                                 `;
-                                
-                                // Set the report title
-                                document.getElementById('report-title').textContent = `${companyName} - Investment Analysis Report`;
+
+                                // Update table headers for QA format
+                                const reportTable = document.getElementById('report-content-table');
+                                const tableHead = reportTable.querySelector('thead tr');
+                                tableHead.innerHTML = `
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">Question Type</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4">Question</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/3">Analyst's Answer</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/3">AI Answer</th>
+                                `;
                                 
                                 // Show the report display section
                                 document.getElementById('report-display-section').classList.remove('hidden');
+                                document.getElementById('report-title').textContent = "Q&A Analysis Report";
                                 
                                 // Scroll to the report section
                                 document.getElementById('report-display-section').scrollIntoView({ behavior: 'smooth' });
                                 
-                                // Fetch the report content
+                                // Fetch the report content (via the same endpoint as before, the backend will handle the different format)
                                 fetch(`/get-report-content/${encodeURIComponent(path)}/`, {
                                     method: 'GET',
                                     headers: {
@@ -557,39 +684,42 @@
                                     }
                                     return response.json();
                                 })
-                                // Then update your report content display code
                                 .then(data => {
                                     if (data.success) {
                                         // Clear existing table content
                                         const reportContentBody = document.getElementById('report-content-body');
                                         reportContentBody.innerHTML = '';
                                         
+                                        // Extract the qa_data from the response
+                                        const qaData = data.report_data.qa_data;
+                                        
                                         // Loop through categories and questions to populate the table
-                                        data.report_data.categories.forEach(category => {
+                                        for (const [category, questions] of Object.entries(qaData)) {
                                             // Add category row
                                             const categoryRow = document.createElement('tr');
                                             categoryRow.className = 'bg-gray-100';
                                             categoryRow.innerHTML = `
-                                                <td colspan="3" class="px-6 py-3 font-medium text-gray-900">${category.name}</td>
+                                                <td colspan="4" class="px-6 py-3 font-medium text-gray-900">${category}</td>
                                             `;
                                             reportContentBody.appendChild(categoryRow);
                                             
                                             // Add question and answer rows
-                                            category.questions.forEach(item => {
+                                            questions.forEach(item => {
                                                 const questionRow = document.createElement('tr');
                                                 questionRow.innerHTML = `
-                                                    <td class="px-6 py-4 text-sm text-gray-500"></td>
+                                                    <td class="px-6 py-4 text-sm text-gray-500">${category}</td>
                                                     <td class="px-6 py-4 text-sm text-gray-900">${item.question}</td>
-                                                    <td class="px-6 py-4 text-sm text-gray-600">${formatMarkdown(item.answer)}</td>
+                                                    <td class="px-6 py-4 text-sm text-gray-600">${formatMarkdown(item.analyst_answer)}</td>
+                                                    <td class="px-6 py-4 text-sm text-gray-600">${formatMarkdown(item.ai_answer)}</td>
                                                 `;
-                                                reportContentBody.appendChild(questionRow);            
+                                                reportContentBody.appendChild(questionRow);
                                             });
-                                        });
+                                        }
                                     } else {
                                         // Show error
                                         document.getElementById('report-content-body').innerHTML = `
                                             <tr>
-                                                <td colspan="3" class="px-6 py-4 text-center text-sm text-red-500">
+                                                <td colspan="4" class="px-6 py-4 text-center text-sm text-red-500">
                                                     Error: ${data.message}
                                                 </td>
                                             </tr>
@@ -600,14 +730,14 @@
                                     console.error('Error loading report content:', error);
                                     document.getElementById('report-content-body').innerHTML = `
                                         <tr>
-                                            <td colspan="3" class="px-6 py-4 text-center text-sm text-red-500">
+                                            <td colspan="4" class="px-6 py-4 text-center text-sm text-red-500">
                                                 Error loading report content. Please try again.
                                             </td>
                                         </tr>
                                     `;
                                 });
-                            });
-                        });
+                            }
+                                
                         // Add event listeners for download buttons                        
                         document.querySelectorAll('.download-report').forEach(button => {
                             button.addEventListener('click', function() {
@@ -666,6 +796,100 @@
             }
 
 
+            function generateQAReport() {
+                const company = companySelect.value;
+                const kbSelect = document.getElementById('kb-select');
+                
+                if (!company) {
+                    showAlert('Please select a company first.', 'error');
+                    return;
+                }
+                
+                if (!kbSelect.value) {
+                    showAlert('Please select a knowledge base first.', 'error');
+                    return;
+                }
+
+                // Get the ground truths file if uploaded
+                const groundTruthsFile = document.getElementById('ground-truths-file').files[0];
+                let groundTruthsPath = null;
+                
+                const processReport = () => {
+                    showAlert('Generating Q&A report... This may take a few minutes.', 'info');
+                    
+                    fetch('/generate-qa-report/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': getCookie('csrftoken')
+                        },
+                        body: JSON.stringify({
+                            company: company,
+                            kb_name: kbSelect.options[kbSelect.selectedIndex].text,
+                            ground_truths_path: groundTruthsPath
+                        })
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            showAlert('Q&A report generated successfully!' + 
+                                (groundTruthsPath ? ' (with RAGAS evaluation)' : ''), 'success');
+                            
+                            // Create download link for the report
+                            const downloadPath = data.report_path;
+                            const downloadUrl = `/download-report/${encodeURIComponent(downloadPath)}/`;
+                            
+                            // Create and trigger download
+                            window.location.href = downloadUrl;
+                            
+                            // Update the reports list after a delay
+                            setTimeout(() => {
+                                loadReports();
+                            }, 3000);
+                        } else {
+                            showAlert(`Error: ${data.message}`, 'error');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        showAlert('An error occurred. Please try again.', 'error');
+                    });
+                };
+                
+                // If ground truths file is uploaded, save it first
+                if (groundTruthsFile) {
+                    const formData = new FormData();
+                    formData.append('file', groundTruthsFile);
+                    formData.append('company', company);
+                    formData.append('kb_name', kbSelect.options[kbSelect.selectedIndex].text);
+                    
+                    fetch('/upload-ground-truths/', {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRFToken': getCookie('csrftoken')
+                        },
+                        body: formData
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            groundTruthsPath = data.file_path;
+                            processReport();
+                        } else {
+                            showAlert(`Error uploading ground truths: ${data.message}`, 'error');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        showAlert('Error uploading ground truths file.', 'error');
+                    });
+                } else {
+                    // No ground truths file, proceed without RAGAS evaluation
+                    processReport();
+                }
+            };
+
+
 
 
 
@@ -690,9 +914,14 @@
             refreshReportsBtn = document.getElementById('refresh-reports');
             reportsTableBody = document.getElementById('reports-table-body');
             noReportsMessage = document.getElementById('no-reports-message');
+            generateQAReportBtn = document.getElementById('generateQAReport');
 
 
             refreshReportsBtn.addEventListener('click', loadReports);
+
+                if (generateQAReportBtn) {
+                    generateQAReportBtn.addEventListener('click', generateQAReport);
+                }
 
             // Load reports initially
             loadReports();
@@ -700,6 +929,9 @@
             document.getElementById('close-report').addEventListener('click', function() {
                 document.getElementById('report-display-section').classList.add('hidden');
             });
+
+
+            
 
 
             // Process Django messages to add close buttons

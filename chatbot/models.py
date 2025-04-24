@@ -56,7 +56,7 @@ class Report(models.Model):
     company = models.CharField(max_length=255)
     kb_name = models.CharField(max_length=255)
     report_path = models.CharField(max_length=1024)
-    report_type = models.CharField(max_length=50, default="excel")
+    report_type = models.CharField(max_length=50, default="excel")  # Values: excel, pdf, pptx, qa_excel
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:

@@ -6,7 +6,7 @@ from .chatbot_logic import get_ai_response
 from .models import KnowledgeBase, KnowledgeBaseFile
 from .forms import CreateKBForm, KnowledgeBaseFileForm
 from django.contrib import messages
-from .report_generator1 import  generate_chat_response, create_vector_store1,generate_excel_report_from_kb
+from .report_generator1 import  generate_chat_response, create_vector_store1,generate_excel_report_from_kb,generate_qa_report_from_kb,get_retriever_for_kb
 import os
 import logging
 from django.shortcuts import get_object_or_404,redirect
@@ -264,11 +264,32 @@ def generate_report(request):
                     'message': 'Company name and knowledge base name are required'
                 })
             
+            # Initialize result
+            result = {
+                'success': False,
+                'message': 'Report generation failed'
+            }
+            
             # Generate the requested report type
             if report_type == 'excel':
-                result = generate_excel_report_from_kb(company_name, kb_name)
-
-             # If successful, save the report information
+                logger.info(f"Generating Excel report for {company_name}/{kb_name}")
+                report_path = generate_excel_report_from_kb(company_name, kb_name)
+                logger.info(f"Report path: {report_path}")
+                
+                if report_path:
+                    result = {
+                        'success': True,
+                        'message': 'Excel report generated successfully',
+                        'report_path': report_path
+                    }
+                else:
+                    logger.error(f"Failed to generate Excel report for {company_name}/{kb_name}")
+                    result = {
+                        'success': False,
+                        'message': 'Failed to generate Excel report'
+                    }
+            
+            # If successful, save the report information
             if result['success']:
                 from .models import Report
                 Report.objects.create(
@@ -291,8 +312,7 @@ def generate_report(request):
         return JsonResponse({
             'success': False,
             'message': 'Invalid request method'
-        }, status=405)
-    
+        }, status=405)    
 
 # Add this new function
 
@@ -349,64 +369,105 @@ def get_report_content(request, report_path):
         # Extract the company name from the title cell (A1)
         title = ws['A1'].value
         company_name = title.split(' - ')[0] if ' - ' in title else 'Company'
+
+        # Check if this is a QA report by looking at the headers
+        qa_report = False
+        if ws['D3'].value and "AI" in ws['D3'].value:
+            qa_report = True
         
-        # Initialize data structure
-        report_data = {
-            'title': title,
-            'company': company_name,
-            'categories': []
-        }
-        
-        # Process the rows and collect the data
-        current_category = None
-        category_questions = []
-        
-        # Start from row 4 (after headers)
-        for row in range(4, ws.max_row + 1):
-            # Check if this is a category row (merged cells)
-            merged_cell_ranges = [str(cell_range) for cell_range in ws.merged_cells.ranges]
-            current_cell = f'A{row}:C{row}'
+        if qa_report:
+            # Process as a Q&A report
+            report_data = {
+                'title': title,
+                'qa_data': {}
+            }
+             # Start from row 4 (after headers)
+            current_category = None
+            for row in range(4, ws.max_row + 1):
+                # Check if this is a category row (merged cells)
+                merged_cell_ranges = [str(cell_range) for cell_range in ws.merged_cells.ranges]
+                current_cell = f'A{row}:D{row}'
+                
+                if current_cell in merged_cell_ranges:
+                    # Start a new category
+                    current_category = ws[f'A{row}'].value
+                    report_data['qa_data'][current_category] = []
+                else:
+                    # Regular question row
+                    question_type = ws[f'A{row}'].value
+                    question = ws[f'B{row}'].value
+                    analyst_answer = ws[f'C{row}'].value
+                    ai_answer = ws[f'D{row}'].value
+                    
+                    if question and (analyst_answer or ai_answer):
+                        report_data['qa_data'][current_category].append({
+                            'question': question,
+                            'analyst_answer': analyst_answer or "Not provided",
+                            'ai_answer': ai_answer or "Not provided"
+                        })
             
-            if current_cell in merged_cell_ranges:
-                # If we already have a category, add it to the report data
-                if current_category and category_questions:
-                    report_data['categories'].append({
-                        'name': current_category,
-                        'questions': category_questions
-                    })
-                
-                # Start a new category
-                current_category = ws[f'A{row}'].value
-                category_questions = []
-            else:
-                # Regular question row
-                question = ws[f'B{row}'].value
-                answer = ws[f'C{row}'].value
-                
-                if question and answer:
-                    category_questions.append({
-                        'question': question,
-                        'answer': answer
-                    })
-        
-        # Add the last category if there is one
-        if current_category and category_questions:
-            report_data['categories'].append({
-                'name': current_category,
-                'questions': category_questions
+            return JsonResponse({
+                'success': True,
+                'report_data': report_data
             })
-        
-        return JsonResponse({
-            'success': True,
-            'report_data': report_data
-        })
-        
+        else:
+            # Initialize data structure
+            report_data = {
+                'title': title,
+                'company': company_name,
+                'categories': []
+            }
+            
+            # Process the rows and collect the data
+            current_category = None
+            category_questions = []
+            
+            # Start from row 4 (after headers)
+            for row in range(4, ws.max_row + 1):
+                # Check if this is a category row (merged cells)
+                merged_cell_ranges = [str(cell_range) for cell_range in ws.merged_cells.ranges]
+                current_cell = f'A{row}:C{row}'
+                
+                if current_cell in merged_cell_ranges:
+                    # If we already have a category, add it to the report data
+                    if current_category and category_questions:
+                        report_data['categories'].append({
+                            'name': current_category,
+                            'questions': category_questions
+                        })
+                    
+                    # Start a new category
+                    current_category = ws[f'A{row}'].value
+                    category_questions = []
+                else:
+                    # Regular question row
+                    question = ws[f'B{row}'].value
+                    answer = ws[f'C{row}'].value
+                    
+                    if question and answer:
+                        category_questions.append({
+                            'question': question,
+                            'answer': answer
+                        })
+            
+            # Add the last category if there is one
+            if current_category and category_questions:
+                report_data['categories'].append({
+                    'name': current_category,
+                    'questions': category_questions
+                })
+            
+            return JsonResponse({
+                'success': True,
+                'report_data': report_data
+            })
+            
     except Exception as e:
-        logger.error(f"Error reading report content: {e}")
-        return JsonResponse({
-            'success': False,
-            'message': f"Error reading report content: {str(e)}"
-        }, status=500)
+            logger.error(f"Error reading report content: {e}")
+            return JsonResponse({
+                'success': False,
+                'message': f"Error reading report content: {str(e)}"
+            }, status=500)
 
 
     
@@ -457,21 +518,164 @@ def download_report(request, report_path):
             'success': False,
             'message': f"Error: {str(e)}"
         }, status=500)
+    
+
+def generate_qa_report(request):
+    """
+    View function to generate a question-based report for a knowledge base
+    """
+    if request.method == 'POST':
+        try:
+            # Parse JSON data
+            data = json.loads(request.body)
+            company_name = data.get('company')
+            kb_name = data.get('kb_name')
+            ground_truths_path = data.get('ground_truths_path')
+            
+            logger.info(f"Generating QA report for {company_name}/{kb_name}")
+            logger.info(f"Ground truths path: {ground_truths_path}")
+            
+            # Validate input
+            if not company_name or not kb_name:
+                logger.error("Missing company name or KB name")
+                return JsonResponse({
+                    'success': False,
+                    'message': 'Company name and knowledge base name are required'
+                })
+            
+            # Check if ground truths file exists if provided
+            if ground_truths_path:
+                if not os.path.exists(ground_truths_path):
+                    logger.warning(f"Ground truths file not found at {ground_truths_path}")
+                    ground_truths_path = None
+                else:
+                    logger.info(f"Ground truths file confirmed at {ground_truths_path}")
+            
+            # Get the retriever for this knowledge base
+            retriever = get_retriever_for_kb(company_name, kb_name)
+            if not retriever:
+                logger.error(f"Failed to get retriever for {company_name}/{kb_name}")
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Knowledge base not found for {company_name}/{kb_name}'
+                })
+            
+            
+            # Generate the report using the predefined question set
+            logger.info("Retrieved retriever, now generating report...")
+            report_path = generate_qa_report_from_kb(company_name, kb_name, retriever,ground_truths_path)
+            
+            if not report_path:
+                logger.error("Failed to generate report, return path was None")
+                return JsonResponse({
+                    'success': False,
+                    'message': 'Failed to generate QA report'
+                })
+                
+            # Success - save to database and return
+            logger.info(f"Report successfully generated at: {report_path}")
+            from .models import Report
+            Report.objects.create(
+                company=company_name,
+                kb_name=kb_name,
+                report_path=report_path,
+                report_type='qa_excel_evaluated' if ground_truths_path else 'qa_excel'
+            )
+            
+            return JsonResponse({
+                'success': True,
+                'message': 'Q&A Report generated successfully',
+                'report_path': report_path
+            })
+            
+        except Exception as e:
+            logger.error(f"Error generating Q&A report: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return JsonResponse({
+                'success': False,
+                'message': f"Error: {str(e)}"
+            })
+    else:
+        return JsonResponse({
+            'success': False,
+            'message': 'Invalid request method'
+        }, status=405)
+    
+
+@csrf_exempt
+def upload_ground_truths(request):
+    """
+    View function to upload ground truths file
+    """
+    if request.method == 'POST':
+        try:
+            # Get form data
+            file_obj = request.FILES.get('file')
+            company_name = request.POST.get('company')
+            kb_name = request.POST.get('kb_name')
+            
+            if not file_obj or not company_name or not kb_name:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'Missing file, company name, or KB name'
+                })
+            
+            # Ensure the file is a markdown or text file
+            file_extension = os.path.splitext(file_obj.name.lower())[1]
+            if file_extension not in ['.md', '.txt']:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'Only markdown (.md) or text (.txt) files are supported for ground truths'
+                })
+            
+            # Get directory for the ground truths
+            from .report_generator1 import get_kb_dir, ensure_dir_exists
+            kb_dir = get_kb_dir(company_name, kb_name)
+            gt_dir = os.path.join(kb_dir, "ground_truths")
+            ensure_dir_exists(gt_dir)
+            
+            # Save the file
+            file_path = os.path.join(gt_dir, file_obj.name)
+            with open(file_path, 'wb+') as destination:
+                for chunk in file_obj.chunks():
+                    destination.write(chunk)
+            
+            return JsonResponse({
+                'success': True,
+                'message': 'Ground truths file uploaded successfully',
+                'file_path': file_path
+            })
+            
+        except Exception as e:
+            logger.error(f"Error uploading ground truths: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return JsonResponse({
+                'success': False,
+                'message': f"Error: {str(e)}"
+            })
+    else:
+        return JsonResponse({
+            'success': False,
+            'message': 'Invalid request method'
+        }, status=405)
 
 
-    # Export the login and logout views explicitly
+    
+# Export the login and logout views explicitly
 __all__ = [
     'login_view', 
     'logout_view', 
     'index', 
     'chat', 
     'create_knowledge_base', 
-    'get_knowledge_bases', 
-    'generate_report', 
+    'get_knowledge_bases',
+    'add_company',
+    'generate_report',
+    'generate_qa_report',
     'download_report',
-    'generate_chat_response',
-    'generate_report_from_files',
-    'generate_report_from_kb',
-    'generate_excel_report_from_kb',
-    'generate_excel_report'
+    'get_reports',
+    'get_report_content',
+    'upload_ground_truths'
 ]

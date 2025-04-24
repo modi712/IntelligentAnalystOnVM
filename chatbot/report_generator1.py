@@ -19,6 +19,8 @@ from langchain.chains import LLMChain
 import json
 from openpyxl import Workbook 
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side 
+import traceback
+from datetime import datetime
 
 
 # Configure logger
@@ -204,66 +206,42 @@ def generate_excel_report(company_name, kb_name, retriever):
 
 
 def generate_excel_report_from_kb(company_name, kb_name):
-    """Generate an Excel report from an existing knowledge base 
-    Args:
-        company_name: Name of the company to analyze
-        kb_name: Name of the knowledge base to use
-    """
-
+    """Generate an Excel report from an existing knowledge base"""
     try:
-        logger.info(f"Generating Excel report for {company_name}/{kb_name}")
+        logger.info(f"Starting generate_excel_report_from_kb for {company_name}/{kb_name}")
         
-        # Check if KB name is None or empty
-        if not kb_name:
-            return {
-                'success': False,
-                'message': "Please select a knowledge base first."
-            }
+        # Check if company_name and kb_name are valid
+        if not company_name or not kb_name:
+            logger.error("Company name or KB name is empty")
+            return None
             
-        # Check if company name is None or empty
-        if not company_name:
-            return {
-                'success': False,
-                'message': "Please select a company first."
-            }
-    
-        # Get the vector store directory path
-        kb_dir = get_kb_dir(company_name, kb_name)
-        persist_dir = os.path.join(kb_dir, "vector_store")
+        # Get the retriever for this knowledge base
+        logger.info(f"Getting retriever for {company_name}/{kb_name}")
+        retriever = get_retriever_for_kb(company_name, kb_name)
         
-        if not os.path.exists(persist_dir):
-            logger.warning(f"Vector store for {kb_name} does not exist.")
-            return {
-                'success': False,
-                'message': f"Knowledge base {kb_name} not found for {company_name}."
-            }
-        
-        # Load the vector store
-        vectorstore = Chroma(
-            collection_name=kb_name,
-            embedding_function=embeddings,
-            persist_directory=persist_dir,
-        )
-        
-        # Create retriever
-        retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+        if not retriever:
+            logger.error(f"Retriever is None - KB not found for {company_name}/{kb_name}")
+            return None
+            
+        logger.info(f"Successfully got retriever, now generating Excel report...")
         
         # Generate the Excel report
         excel_path = generate_excel_report(company_name, kb_name, retriever)
         
-        return {
-            'success': True,
-            'report_path': excel_path,
-            'message': f"Generated Excel report for {company_name} from knowledge base {kb_name}"
-        }
+        if not excel_path:
+            logger.error("generate_excel_report returned None")
+            return None
+            
+        # Return the path to the Excel file
+        logger.info(f"Excel report generated successfully: {excel_path}")
+        return excel_path
         
     except Exception as e:
-        logger.error(f"Error generating Excel report: {e}")
-        return {
-            'success': False,
-            'message': f"Error generating Excel report: {str(e)}"
-        }
-    
+        logger.error(f"Exception in generate_excel_report_from_kb: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return None
+        
 # def runquery(query_text, slide_index, shape_index, page_num, paragraph_index, retriever, ppt=None):
 #     """Run a query and update a specific shape in the presentation"""
 #     try:
@@ -302,10 +280,21 @@ def create_vector_store1(files, kb_name, company_name):
     logger.info(f"Creating vector store for {company_name}/{kb_name}")
     
     try:
+        # Sanitize KB name for collection name
+        import re
+        sanitized_kb_name = re.sub(r'[^a-zA-Z0-9_-]', '_', kb_name)
+        if not sanitized_kb_name[0].isalnum():
+            sanitized_kb_name = 'kb_' + sanitized_kb_name
+        if len(sanitized_kb_name) > 0 and not sanitized_kb_name[-1].isalnum():
+            sanitized_kb_name = sanitized_kb_name + '1'
+        if len(sanitized_kb_name) < 3:
+            sanitized_kb_name = sanitized_kb_name + '_db'
+        sanitized_kb_name = sanitized_kb_name[:63]
+        
         # Get directories
         kb_dir = get_kb_dir(company_name, kb_name)
-        persist_dir = os.path.join(kb_dir, "vector_store")
-        ensure_dir_exists(persist_dir)
+        persist_directory = f"media/vector_stores/{company_name}/{sanitized_kb_name}"
+        ensure_dir_exists(persist_directory)
         
         # Process uploaded files to get text
         all_texts = []
@@ -353,9 +342,9 @@ def create_vector_store1(files, kb_name, company_name):
         
         # Create vector store
         vectorstore = Chroma(
-            collection_name=kb_name,
+            collection_name=sanitized_kb_name,
             embedding_function=embeddings,
-            persist_directory=persist_dir,
+            persist_directory=persist_directory,  # Fixed variable name
         )
         
         # Add documents in batches
@@ -371,7 +360,10 @@ def create_vector_store1(files, kb_name, company_name):
         
     except Exception as e:
         logger.error(f"Error creating vector store: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return None
+    
 
 def generate_chat_response(query, company_name, kb_name):
     """Generate a conversational response based on knowledge base content"""
@@ -538,9 +530,717 @@ def run_query(query, retriever):
     return text
 
 
+def run_query_concise(query, retriever, max_length=None, analyst_answer_length=None):
+    """
+    Run a query against the retriever and process with LLM to produce concise answers
+    similar in length to analyst answers
+    """
+    if not llm:
+        return "LLM not initialized. Cannot generate report content."
+    
+    # Get relevant documents
+    retrieved_docs = retriever.invoke(query)
+    context = "\n\n".join([doc.page_content for doc in retrieved_docs])
+    
+    # Create length guidance based on analyst answer if provided
+    length_guidance = ""
+    if analyst_answer_length:
+        length_guidance = f"Your answer should be approximately {analyst_answer_length} characters long."
+    elif max_length:
+        length_guidance = f"Your answer should not exceed {max_length} characters."
+    else:
+        length_guidance = "Keep your answer brief and concise."
+    
+    # Create prompt template
+    prompt = PromptTemplate(
+        template="""You are a professional business analyst creating a concise report.
+        
+        Based on the following context information, provide a brief, well-structured, professional response to the query.
+        Make your response concise and to the point - include only the most relevant information.
+        
+        Important formatting and length requirements:
+        1. {length_guidance}
+        2. Use bullet points for listing key information (• format)
+        3. Bold important terms or figures using markdown (**term**)
+        4. Focus on the most important facts or insights only
+        5. Avoid unnecessary context or background information
+        6. Match the style and tone of an expert analyst's answer
+        
+        Context: {context}
+        
+        Query: {query}
+        
+        Response:""",
+        input_variables=["context", "query", "length_guidance"]
+    )
+    
+    # Create and run chain
+    chain = LLMChain(llm=llm, prompt=prompt)
+    response = chain.invoke({
+        "context": context, 
+        "query": query,
+        "length_guidance": length_guidance
+    })
+
+    # Process response for better formatting in Excel
+    text = response['text'].strip()
+
+    # Convert markdown bullets to proper bullet points for Excel
+    text = text.replace('\n• ', '\n• ')
+    text = text.replace('\n* ', '\n• ')
+    text = text.replace('\n- ', '\n• ')
+
+    # Ensure proper line breaks between bullet points
+    text = text.replace('\n\n• ', '\n• ')
+    
+    return text
+
+
 
     
 def get_excel_dir(company_name, kb_name):
     """Get Excel directory path and create if doesn't exist."""
     excel_path = os.path.join(get_kb_dir(company_name, kb_name), "excel")
     return ensure_dir_exists(excel_path)
+
+
+def generate_qa_report_from_kb(company_name, kb_name, retriever,ground_truths_path=None):
+    """
+    Generate a Q&A report for the specified company and knowledge base
+
+    Args:
+        company_name: Name of the company
+        kb_name: Name of the knowledge base
+        retriever: The retriever object for the knowledge base
+        ground_truths_path: Optional path to ground truths file for RAGAS evaluation
+    
+    Returns:
+        Path to the generated Excel report
+    """
+    # Define the predefined questions and categories
+    qa_data = {
+        "Fact Extraction": [
+            {
+                "question": f"What is the full name of the {company_name}?",
+                "analyst_answer": "ADVANCED MICRO DEVICES, INC."
+            },
+            {
+                "question": f"Which all {company_name} documents do you have access to?",
+                "analyst_answer": "10K reports of AMD from 2014 till 2023"
+            },
+            {
+                "question": f"What is the address of{company_name}'s headquarters?",
+                "analyst_answer": "2485 Augustine Drive, Santa Clara, California 95054, United States"
+            },
+            {
+                "question": f"Who are the key management team members of {company_name} as of the latest filing?",
+                "analyst_answer": """Below are the key members of the management team:
+                * President and CEO, Director: Lisa T. Su
+                * Executive Vice President, Chief Financial Officer and  
+                  Treasurer: Jean Hu
+                * Corporate Vice President, Chief Accounting Officer: Darla Smith"""
+            },
+            {
+                "question": f"What is the total number of patents that {company_name} has as of the latest reporting?",
+                "analyst_answer": "As per the company's 10K FY2023: they had approximately 7,500 patents in the United States and approximately 2,000 patent applications pending in the United States; Including United States and foreign matters, they have approximately 18,500 patent matters worldwide consisting of approximately 12,800 issued patents and 5,600 patent applications pending."
+            },
+        ],
+        "Summarization": [
+            {
+                "question": f"Give a brief history of {company_name}.",
+                "analyst_answer": "AMD, a global semiconductor company, was incorporated in 1969 as a Silicon Valley start-up with dozens of employees focused on leading-edge semiconductor products, and became public in 1972. Today, they have grown into a global company achieving many important industry firsts along the way. They develop high-performance and adaptive computing to solve some of the world’s toughest and most interesting challenges."
+            },
+            {
+                "question": f"What are the main products of {company_name}? Give a brief description.",
+                "analyst_answer": "AMD’s products include x86 microprocessors (CPUs) and graphics processing units (GPUs), as standalone devices or as incorporated into accelerated processing units (APUs), chipsets, data center and professional GPUs, embedded processors, semi-custom System-on-Chip(SoC) products, microprocessor and SoC development services and technology, data processing units (DPUs), Field Programmable Gate Arrays (FPGAs),System on Modules (SOMs), Smart Network Interface Cards (SmartNICs), AI Accelerators and Adaptive SoC products."
+            },
+            {
+                "question": f"What are the main revenue segments of {company_name} at the end of 2023?",
+                "analyst_answer": """Major revenue segments of AMD:
+                * Data Center: 29% of net revenue
+                * Client: 21% of net revenue
+                * Gaming: 27% of net revenue
+                * Embedded: 23% of net revenue"""
+            },
+            {
+                "question": f"Who are the main competitors of {company_name} as of 2023?",
+                "analyst_answer": """Segment wise competitors:
+                * Data Center: Nvidia and Intel
+                * Client Segment: Intel
+                * Gaming Segment: Nvidia, Intel
+                * Embedded Segment: Intel, Lattice Semiconductor and 
+                  Microsemi Corporation (Microsemi,acquired by Microchip), from ASSP vendors such as Broadcom Corporation, Marvell Technology Group, Analog Devices, Texas Instruments and NXP Semiconductors, and from NVIDIA"""
+            },
+            {
+                "question": f"What are the major risk factors for {company_name}?",
+                "analyst_answer": """
+                * Intel Corporation’s dominance of the microprocessor market and its aggressive business practices may limit AMD's ability to compete effectively on a level playing field
+                * Cyclicity of the semiconductor industry, and the fluctuation of demand for products
+                * Success for AMD is dependent upon its ability to introduce products on a timely basis with features and performance levels that provide value to their customers while supporting and coinciding with significant industry transitions; so consistent innovation and product upgradation is required
+                * AMD relies on third parties to manufacture its products, and if they are unable to do so on a timely basis in sufficient quantities and using competitive technologies, AMD's business could be materially adversely affected
+                * If AMD loses Microsoft Corporation’s support for their products or other software vendors do not design and develop software to run on their products, their ability to sell their products could be materially adversely affected
+                * Government actions and regulations such as export regulations, tariffs, and trade protection measures may limit AMD's ability to export our products to certain customers"""
+            },
+            {
+                "question": f"What are the acquisitions {company_name} has done over the last 5 years?",
+                "analyst_answer": """
+                * October 2023, they acquired Nod Inc, an open AI software company
+                * August 2023, AMD acquired Mipsology SAS, an AI software company
+                * May 2022, AMD acquired Pensando for, a next-generation distributed computing company
+                * February 2022, AMD acquired Xilinx, a provider of adaptive computing solutions"""
+            }
+        ],
+        "Analysis": [
+            {
+                "question": f"Is {company_name} operating in a crowded market?",
+                "analyst_answer": "AMD operates in a highly competitive market, and the company expects the competition to continue to be intense due to rapid technological changes, frequent product introductions by its competitors or new competitors of products that may provide better performance or experience or that may include additional features that render AMD's products comparatively less competitive"
+            },
+            {
+                "question": f"What is {company_name}'s market share in its major revenue segment?",
+                "analyst_answer": """Industry size/market size data is not available, however, as for AMD's net revenue for financial year 2023, below is how its segments contributed to its total revenue of $22,680 Mn:
+
+                * Data Center: 29%
+                * Client: 21%
+                * Gaming: 27%
+                * Embedded: 23%"""
+            },
+            {
+                "question": f"How is the corporate governance at {company_name} with respect to disclosures, independent directors as in 2023?",
+                "analyst_answer": "Corporate Governance Principles of the company are posted on an external link, and its not available in the 10K reports. Here is the link for the same: https://www.amd.com/en/corporate/corporate-responsibility.html"
+            }
+        ]
+    }
+    
+    try:
+        # Create a new workbook and select the active worksheet
+        wb = Workbook()
+        ws = wb.active
+        ws.title = f"{company_name} Q&A Analysis"
+        
+        # Define styles
+        header_font = Font(bold=True, size=12)
+        category_font = Font(bold=True, size=11)
+        header_fill = PatternFill(start_color="CFCFCF", end_color="CFCFCF", fill_type="solid")
+        category_fill = PatternFill(start_color="E6E6E6", end_color="E6E6E6", fill_type="solid")
+        
+        thin_border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+        
+        # Add report title
+        ws.merge_cells('A1:D1')
+        ws['A1'] = f"{company_name} - Question & Answer Analysis Report"
+        ws['A1'].font = Font(bold=True, size=14)
+        ws['A1'].alignment = Alignment(horizontal='center')
+        
+        # Add headers
+        ws['A3'] = "Question Type"
+        ws['B3'] = "Question"
+        ws['C3'] = "Analyst's Answer"
+        ws['D3'] = "AI Agent Answer"
+        
+        for cell in ['A3', 'B3', 'C3', 'D3']:
+            ws[cell].font = header_font
+            ws[cell].fill = header_fill
+            ws[cell].border = thin_border
+        
+        # Set column widths
+        ws.column_dimensions['A'].width = 15
+        ws.column_dimensions['B'].width = 40
+        ws.column_dimensions['C'].width = 40
+        ws.column_dimensions['D'].width = 40
+        
+        # Starting row for data
+        row = 4
+        
+        # Iterate through categories and questions
+        for category, questions in qa_data.items():
+            # Add category row
+            ws.merge_cells(f'A{row}:D{row}')
+            ws[f'A{row}'] = category
+            ws[f'A{row}'].font = category_font
+            ws[f'A{row}'].fill = category_fill
+            ws[f'A{row}'].alignment = Alignment(horizontal='left')
+            for col in ['A', 'B', 'C', 'D']:
+                ws[f'{col}{row}'].border = thin_border
+            row += 1
+            
+            # Process each question in the category
+            for q_data in questions:
+                question = q_data["question"]
+                analyst_answer = q_data["analyst_answer"]
+
+
+                # Calculate the length of the analyst's answer to guide AI response length
+                analyst_answer_length = len(analyst_answer)
+                
+                # Get AI answer from the retriever and LLM with length guidance
+                ai_answer = run_query_concise(
+                    question, 
+                    retriever, 
+                    analyst_answer_length=analyst_answer_length
+                )
+                
+                # Add to worksheet
+                ws[f'A{row}'] = category
+                ws[f'B{row}'] = question
+                ws[f'C{row}'] = analyst_answer
+                ws[f'D{row}'] = ai_answer
+                
+                # Apply borders and text wrapping
+                for col in ['A', 'B', 'C', 'D']:
+                    ws[f'{col}{row}'].border = thin_border
+                    ws[f'{col}{row}'].alignment = Alignment(wrap_text=True, vertical='top')
+                
+                row += 1
+        
+        # Save the workbook
+        excel_dir = os.path.join(get_kb_dir(company_name, kb_name), "excel")
+        ensure_dir_exists(excel_dir)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        excel_path = os.path.join(excel_dir, f"{company_name}_{kb_name}_qa_analysis_{timestamp}.xlsx")
+        wb.save(excel_path)
+        
+        logger.info(f"Q&A Excel report saved to {excel_path}")
+
+         # If ground truths file is provided, run RAGAS evaluation
+        if ground_truths_path and os.path.exists(ground_truths_path):
+            logger.info(f"Ground truths file found at {ground_truths_path}, running RAGAS evaluation")
+            # Pass company_name and kb_name to use for retriever access
+            evaluated_path = evaluate_qa_report_with_ragas(
+                excel_path, 
+                ground_truths_path,
+                company_name,
+                kb_name
+            )
+            if evaluated_path:
+                logger.info(f"RAGAS evaluation completed, returning evaluated report path")
+                return evaluated_path
+
+            else:
+                logger.error(f"RAGAS evaluation failed, returning original excel path")
+        else:
+            if ground_truths_path:
+                logger.error(f"Ground truths file not found at {ground_truths_path}")
+            else:
+                logger.info("No ground truths file provided, skipping RAGAS evaluation")
+        return excel_path
+        
+    except Exception as e:
+        logger.error(f"Error generating Q&A report: {e}")
+        logger.error(traceback.format_exc())
+        return None
+    
+# Update get_retriever_for_kb function
+def get_retriever_for_kb(company_name, kb_name):
+    """
+    Get a retriever for an existing knowledge base
+    """
+    try:
+        logger.info(f"Getting retriever for {company_name}/{kb_name}")
+        # Use the same embeddings as the rest of your application
+        from langchain_community.embeddings import SentenceTransformerEmbeddings
+        
+        # Sanitize KB name for use as collection name (same as in create_vector_store1)
+        import re
+        sanitized_kb_name = re.sub(r'[^a-zA-Z0-9_-]', '_', kb_name)
+        if not sanitized_kb_name[0].isalnum():
+            sanitized_kb_name = 'kb_' + sanitized_kb_name
+        if len(sanitized_kb_name) > 0 and not sanitized_kb_name[-1].isalnum():
+            sanitized_kb_name = sanitized_kb_name + '1'
+        if len(sanitized_kb_name) < 3:
+            sanitized_kb_name = sanitized_kb_name + '_db'
+        sanitized_kb_name = sanitized_kb_name[:63]
+        
+        # Path to the vector store
+        persist_directory = f"media/vector_stores/{company_name}/{sanitized_kb_name}"
+        
+        # Check if directory exists
+        if not os.path.exists(persist_directory):
+            logger.error(f"Vector store directory not found: {persist_directory}")
+            return None
+        
+        # Initialize embeddings - USE THE SAME EMBEDDINGS AS IN create_vector_store1
+        embeddings_model = SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
+        
+        # Load the vector store
+        vectordb = Chroma(
+            persist_directory=persist_directory,
+            embedding_function=embeddings_model,
+            collection_name=sanitized_kb_name
+        )
+        
+        # Create retriever
+        retriever = vectordb.as_retriever(
+            search_type="similarity",
+            search_kwargs={"k": 5}
+        )
+        
+        logger.info(f"Successfully loaded retriever for {company_name}/{kb_name}")
+        return retriever
+        
+    except Exception as e:
+        import traceback
+        logger.error(f"Error loading retriever for {company_name}/{kb_name}: {e}")
+        logger.error(traceback.format_exc())
+        return None
+    
+
+def evaluate_qa_report_with_ragas(excel_path, ground_truths_path, company_name, kb_name):
+    """
+    Evaluate the QA report using RAGAS metrics and update the Excel file
+    
+    Args:
+        excel_path: Path to the generated Excel report
+        ground_truths_path: Path to the ground_truths file (.md or .txt)
+        company_name: Name of the company for retriever access
+        kb_name: Name of the knowledge base for retriever access
+    
+    Returns:
+        Path to the updated Excel file with evaluation metrics
+    """
+    try:
+        import pandas as pd
+        from openpyxl import load_workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        import re
+        
+        logger.info(f"Starting RAGAS evaluation for report: {excel_path}")
+        
+        # Initialize LLM and embedding wrappers for RAGAS
+        try:
+            # Import RAGAS dependencies
+            from ragas.llms import LangchainLLMWrapper
+            from ragas.embeddings import LangchainEmbeddingsWrapper
+            from ragas.metrics import (
+                LLMContextPrecisionWithReference,
+                LLMContextRecall,
+                ContextEntityRecall,
+                NoiseSensitivity,
+                ResponseRelevancy,
+                Faithfulness
+            )
+            from langchain_core.documents import Document
+            
+            # Define LLM wrapper for metrics
+            ragas_llm = LangchainLLMWrapper(llm)
+            
+            # Define embeddings wrapper for metrics that need it
+            ragas_embeddings = LangchainEmbeddingsWrapper(embeddings)
+            
+            # Define metrics with proper wrappers
+            metrics = {
+                'E': ('Faithfulness', Faithfulness(llm=ragas_llm)),
+                'F': ('Response Relevancy', ResponseRelevancy(llm=ragas_llm, embeddings=ragas_embeddings)),
+                'G': ('Context Precision', LLMContextPrecisionWithReference(llm=ragas_llm)),
+                'H': ('Context Recall', LLMContextRecall(llm=ragas_llm)),
+                'I': ('Entity Recall', ContextEntityRecall(llm=ragas_llm)),
+                'J': ('Noise Sensitivity', NoiseSensitivity(llm=ragas_llm))
+            }
+            
+            logger.info("Successfully initialized RAGAS metrics")
+            
+        except ImportError as ie:
+            logger.error(f"RAGAS library import error: {ie}")
+            logger.error(traceback.format_exc())
+            return None
+        except Exception as e:
+            logger.error(f"Error initializing RAGAS metrics: {e}")
+            logger.error(traceback.format_exc())
+            return None
+        
+        # Get retriever for this knowledge base
+        retriever = get_retriever_for_kb(company_name, kb_name)
+        if not retriever:
+            logger.error(f"Could not get retriever for {company_name}/{kb_name}")
+            return None
+        
+        # Load the ground truths from the file
+        with open(ground_truths_path, 'r', encoding='utf-8') as f:
+            ground_truths_content = f.read()
+        
+        # Parse the ground truths file based on its format
+        ground_truths = []
+        file_extension = os.path.splitext(ground_truths_path.lower())[1]
+        
+        if file_extension == '.md':
+            # Parse for questions and ground truths
+            q_matches = re.findall(r'## Question \d+:(.*?)(?=## Ground Truth:)', ground_truths_content, re.DOTALL)
+            gt_matches = re.findall(r'## Ground Truth:(.*?)(?=## Question \d+:|$)', ground_truths_content, re.DOTALL)
+
+            if len(q_matches) == len(gt_matches):
+                for i in range(len(q_matches)):
+                    ground_truths.append({
+                        "question": q_matches[i].strip(),
+                        "ground_truth": gt_matches[i].strip()
+                    })
+        
+        elif file_extension == '.txt':
+            # Parse TXT format with QUESTION: and GROUND TRUTH: markers
+            entries = ground_truths_content.split('---')
+            
+            for entry in entries:
+                entry = entry.strip()
+                if not entry:
+                    continue
+                
+                question_match = re.search(r'QUESTION:(.*?)(?=GROUND TRUTH:|$)', entry, re.DOTALL, re.IGNORECASE)
+                ground_truth_match = re.search(r'GROUND TRUTH:(.*?)(?=CONTEXT:|$)', entry, re.DOTALL, re.IGNORECASE)
+                
+                if question_match and ground_truth_match:
+                    question = question_match.group(1).strip()
+                    ground_truth = ground_truth_match.group(1).strip()
+                    ground_truths.append({
+                        "question": question,
+                        "ground_truth": ground_truth
+                    })
+        
+        if not ground_truths:
+            logger.error(f"Could not parse any questions from ground truths file: {ground_truths_path}")
+            return None
+            
+        logger.info(f"Parsed {len(ground_truths)} questions from ground truths file")
+        
+        # For each question, retrieve context using the retriever
+        for q_data in ground_truths:
+            question = q_data["question"]
+            
+            # Use the retriever to get relevant context
+            try:
+                retrieved_docs = retriever.invoke(question)
+                if retrieved_docs:
+                    # Get text from docs and join
+                    context_texts = [doc.page_content for doc in retrieved_docs]
+                    context = "\n\n".join(context_texts)
+                    q_data["context"] = context
+                    q_data["context_docs"] = retrieved_docs
+                else:
+                    logger.warning(f"No context found for question: {question}")
+                    q_data["context"] = ""
+                    q_data["context_docs"] = []
+            except Exception as e:
+                logger.error(f"Error retrieving context for question '{question}': {e}")
+                q_data["context"] = ""
+                q_data["context_docs"] = []
+        
+        # Load the Excel file
+        wb = load_workbook(excel_path)
+        ws = wb.active
+        
+        # Add headers for evaluation metrics
+        for col, (header_name, _) in metrics.items():
+            ws[f'{col}3'] = header_name
+        
+        # Apply header styling
+        header_font = Font(bold=True, size=12)
+        header_fill = PatternFill(start_color="CFCFCF", end_color="CFCFCF", fill_type="solid")
+        thin_border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+        
+        for col in metrics.keys():
+            ws[f'{col}3'].font = header_font
+            ws[f'{col}3'].fill = header_fill
+            ws[f'{col}3'].border = thin_border
+            ws.column_dimensions[col].width = 15
+        
+        # Find and evaluate each question
+        row = 5  # Starting from the first question (after headers and category)
+        metrics_by_category = {col: {} for col in metrics.keys()}
+        
+        # Define a function to evaluate all metrics for a single QA pair
+        def evaluate_metrics(question, answer, contexts, ground_truth, metrics_dict):
+            results = {}
+            
+            # Import SingleTurnSample if needed
+            from ragas.single_turn import SingleTurnSample
+            
+            # Create RAGAS sample
+            sample = SingleTurnSample(
+                question=question,
+                answer=answer,
+                contexts=contexts,
+                ground_truth=ground_truth
+            )
+            
+            # Evaluate each metric
+            for col, (metric_name, metric) in metrics_dict.items():
+                try:
+                    score = metric.single_turn_score(sample)
+                    results[col] = score
+                except Exception as e:
+                    logger.error(f"Error calculating {metric_name}: {e}")
+                    logger.error(traceback.format_exc())
+                    results[col] = None
+            
+            return results
+        
+        while row <= ws.max_row:
+            # Skip if row is a category header (merged cells)
+            try:
+                if ws.cell(row=row, column=1).value == ws.cell(row=row, column=2).value:
+                    row += 1
+                    continue
+            except:
+                # If error checking merged cells, just continue
+                pass
+                
+            # Get question, category, and AI answer from excel
+            question_cell_value = ws.cell(row=row, column=2).value
+            if not question_cell_value:
+                row += 1
+                continue
+                
+            category = ws.cell(row=row, column=1).value
+            ai_answer = ws.cell(row=row, column=4).value
+            
+            if not ai_answer:
+                row += 1
+                continue
+            
+            # Find matching ground truth
+            matching_gt = None
+            for gt in ground_truths:
+                # Simple matching by checking if question contains the ground truth question or vice versa
+                if (gt["question"].lower() in question_cell_value.lower() or 
+                    question_cell_value.lower() in gt["question"].lower()):
+                    matching_gt = gt
+                    break
+
+                # Try substring matching with score
+                q1_words = set(gt["question"].lower().split())
+                q2_words = set(question_cell_value.lower().split())
+                common_words = q1_words.intersection(q2_words)
+
+                # Calculate Jaccard similarity
+                if len(q1_words) > 0 and len(q2_words) > 0:
+                    similarity = len(common_words) / len(q1_words.union(q2_words))
+                    if similarity > 0.5 and similarity > best_match_score:  # Require 50% similarity
+                        matching_gt = gt
+                        best_match_score = similarity
+
+                logger.info(f"Question: '{question_cell_value}' - Found match: {matching_gt is not None}")
+                if matching_gt:
+                    logger.info(f"Matched with GT question: '{matching_gt['question']}'")
+            
+            if matching_gt and "context_docs" in matching_gt and matching_gt["context_docs"]:
+                # Calculate RAGAS metrics
+                try:
+                    # Get all scores at once
+                    metric_results = evaluate_metrics(
+                        question=question_cell_value,
+                        answer=ai_answer,
+                        contexts=matching_gt["context_docs"],
+                        ground_truth=matching_gt["ground_truth"],
+                        metrics_dict=metrics
+                    )
+                    
+                    # Add scores to Excel and tracking
+                    for col, score in metric_results.items():
+                        if score is not None:
+                            # Initialize category tracking if needed
+                            if category not in metrics_by_category[col]:
+                                metrics_by_category[col][category] = []
+                            
+                            # Add to Excel
+                            ws.cell(row=row, column=ord(col) - ord('A') + 1).value = round(score, 2)
+                            
+                            # Track for averages
+                            metrics_by_category[col][category].append(score)
+                        else:
+                            ws.cell(row=row, column=ord(col) - ord('A') + 1).value = "Error"
+                    
+                except Exception as eval_error:
+                    logger.error(f"Error evaluating question '{question_cell_value}': {eval_error}")
+                    logger.error(traceback.format_exc())
+                    # Add N/A for failed evaluations
+                    for col in metrics.keys():
+                        ws.cell(row=row, column=ord(col) - ord('A') + 1).value = "N/A"
+            else:
+                # No matching ground truth or no context found
+                for col in metrics.keys():
+                    ws.cell(row=row, column=ord(col) - ord('A') + 1).value = "No GT/Context"
+            
+            row += 1
+        
+        # Add a summary section
+        row = ws.max_row + 2
+        max_col = chr(ord('A') + len(metrics))
+        ws.merge_cells(f'A{row}:{max_col}{row}')
+        ws[f'A{row}'] = "RAGAS Evaluation Summary"
+        ws[f'A{row}'].font = Font(bold=True, size=14)
+        ws[f'A{row}'].alignment = Alignment(horizontal='center')
+        
+        # Add headers for summary
+        row += 2
+        ws[f'A{row}'] = "Category"
+        
+        col_index = 'B'
+        for col, (metric_name, _) in metrics.items():
+            ws[f'{col_index}{row}'] = metric_name
+            ws[f'{col_index}{row}'].font = Font(bold=True)
+            ws[f'{col_index}{row}'].fill = PatternFill(start_color="CFCFCF", end_color="CFCFCF", fill_type="solid")
+            col_index = chr(ord(col_index) + 1)
+        
+        # Add category averages
+        categories = set()
+        for col_data in metrics_by_category.values():
+            categories.update(col_data.keys())
+        
+        for category in categories:
+            row += 1
+            ws[f'A{row}'] = category
+            
+            col_index = 'B'
+            for col in metrics.keys():
+                if category in metrics_by_category[col] and metrics_by_category[col][category]:
+                    values = metrics_by_category[col][category]
+                    ws[f'{col_index}{row}'] = round(sum(values) / len(values), 2)
+                col_index = chr(ord(col_index) + 1)
+        
+        # Add overall average
+        row += 2
+        ws[f'A{row}'] = "OVERALL AVERAGE"
+        ws[f'A{row}'].font = Font(bold=True)
+        
+        # Calculate overall averages
+        col_index = 'B'
+        for col in metrics.keys():
+            all_values = []
+            for category_values in metrics_by_category[col].values():
+                all_values.extend(category_values)
+                
+            if all_values:
+                ws[f'{col_index}{row}'] = round(sum(all_values) / len(all_values), 2)
+            col_index = chr(ord(col_index) + 1)
+        
+        # Add color coding to the scores
+        for row_idx in range(5, ws.max_row + 1):
+            for col in metrics.keys():
+                col_idx = ord(col) - ord('A') + 1
+                cell = ws.cell(row=row_idx, column=col_idx)
+                if isinstance(cell.value, (int, float)):
+                    if cell.value >= 0.8:
+                        cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")  # Green
+                    elif cell.value >= 0.6:
+                        cell.fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")  # Yellow
+                    else:
+                        cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")  # Red
+        
+        # Save the updated workbook
+        eval_excel_path = excel_path.replace('.xlsx', '_evaluated.xlsx')
+        wb.save(eval_excel_path)
+        
+        logger.info(f"RAGAS evaluation completed and saved to {eval_excel_path}")
+        return eval_excel_path
+        
+    except Exception as e:
+        logger.error(f"Error in RAGAS evaluation: {e}")
+        logger.error(traceback.format_exc())
+        return None
