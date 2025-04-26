@@ -179,10 +179,12 @@
                     </div>
 
                     <div class="mt-4">
-                       <form id="add-company-form" class="flex items-center space-x-2">
+                        <form id="add-company-form" class="flex items-center space-x-2 w-full">
                             {% csrf_token %}
-                            <input type="text" id="new-company-input" placeholder="Add new company" class="border border-gray-500 rounded px-2 py-1">
-                            <button type="submit" class="bg-blue-500 text-white px-3 py-1 rounded">Add</button>
+                            <div class="flex w-full">
+                                <input type="text" id="new-company-input" placeholder="Add new company" class="flex-grow border border-gray-300 rounded-l-md px-3 py-3 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                <button type="submit" class="bg-blue-500 text-white px-3 py-3 rounded-r-md hover:bg-blue-600 text-sm font-medium">Add</button>
+                            </div>
                         </form>
                     </div>
 
@@ -207,11 +209,11 @@
                      <button id="generateExcelReport" class="w-full inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-blue-500 text-white shadow hover:bg-blue-500/90 h-10 rounded-md px-8">
                         Generate Report
                     </button> 
-
-                    {% comment %} <button id="generateQAReport" class="w-full inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-green-500 text-white shadow hover:bg-green-600 h-10 rounded-md px-8">
+{% comment %} 
+                    <button id="generateQAReport" class="w-full inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-green-500 text-white shadow hover:bg-green-600 h-10 rounded-md px-8">
                         Generate Q&A Report
-                    </button> {% endcomment %}
-                    {% comment %} <div class="mt-4 space-y-2">
+                    </button>
+                    <div class="mt-4 space-y-2">
                         <label for="ground-truths-file" class="text-sm font-medium text-gray-700">
                             Ground Truths File (Optional - For RAGAS Evaluation)
                         </label>
@@ -224,10 +226,16 @@
                                 hover:file:bg-blue-100">
                         </div>
                     <p class="text-xs text-gray-500">If provided, the report will include RAGAS evaluation metrics</p>
+                </div>
+
+                <div class="mt-2">
+                    <button id="show-gt-format" class="text-xs text-blue-600 hover:text-blue-800">
+                        Help with ground truths format
+                    </button>
                 </div> {% endcomment %}
 
                     
-                </div>
+                </div> 
                 
             </div>
 
@@ -237,16 +245,22 @@
                     <h2 class="text-xl font-semibold text-gray-800">Chatbot</h2>
                 </div>
                 <div class="p-6 pt-0">
-                    <div id="chat-messages" class="h-80 overflow-y-auto mb-4 p-4 border rounded-lg">
+                    <div id="chat-messages" class="h-80 overflow-y-auto  p-4 border rounded-lg">
                         <p class="text-gray-500">Chat interface will be displayed here.</p>
                     </div>
                 </div>
-                <div class="chat-input-container flex">
-                    <textarea id="user-input" class="flex-grow rounded-l-md border border-gray-300 bg-transparent px-1 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none overflow-auto" placeholder="Type your message here... (Shift+Enter for new line)" rows="1"></textarea>
-                    <button id="send-message" class="h-12 px-4 bg-blue-500 text-white rounded-r-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        Send
+                <div class="chat-input-container flex mb-2">
+                    <textarea 
+                        id="user-input" 
+                        class="flex-grow rounded-l-md border border-gray-300 bg-white bg-opacity-90 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none overflow-auto" 
+                        placeholder="Type your message here... (Shift+Enter for new line)" 
+                        rows="1"
+                    ></textarea>
+                    <button id="send-message" class="h-12 px-2 bg-blue-500 text-white rounded-r-md hover:bg-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                    Send
                     </button>
                 </div>
+               
             </div> 
         </div>
 
@@ -323,6 +337,8 @@
          // Declare global variables at the top
         let companySelect, useExistingBtn, createNewBtn, existingKbSection, kbSelect, generateReportBtn, userInput, sendMessageBtn, chatMessages,refreshReportsBtn, reportsTableBody, noReportsMessage,generateQAReportBtn;
 
+
+        
 
         // Function to get CSRF token from cookies
             function getCookie(name) {
@@ -493,7 +509,9 @@
 
             // Function to load reports
             function loadReports() {
-                fetch('/get-reports/', {
+
+                reportsTableBody.innerHTML = '';
+                fetch('/get-session-reports/', {
                     method: 'GET',
                     headers: {
                         'X-CSRFToken': getCookie('csrftoken')
@@ -513,7 +531,7 @@
                         
                         data.reports.forEach(report => {
                             const row = document.createElement('tr');
-                            row.className = 'hover:bg-gray-50';
+                            row.className = 'hover:bg-gray-50 report-row-animation';
                             
                             row.innerHTML = `
                                 <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${report.company}</td>
@@ -529,7 +547,29 @@
                             reportsTableBody.appendChild(row);
                         });
 
+                         // Add event listeners for the buttons
+                        addReportButtonListeners();
+                    } else {
+                        // No reports found
+                        reportsTableBody.innerHTML = '';
+                        noReportsMessage.classList.remove('hidden');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading report content:', error);
+                    reportsTableBody.innerHTML = `
+                        <tr>
+                            <td colspan="5" class="px-6 py-4 text-center text-sm text-red-500">
+                                Error loading reports: ${error.message}
+                            </td>
+                        </tr>
+                    `;
+                });
+            }
 
+            // // Extract the event listener setup to a separate function for reuse
+
+            function addReportButtonListeners() {
                         // Update the view-report event listeners in loadReports function
                         document.querySelectorAll('.view-report').forEach(button => {
                             button.addEventListener('click', function() {
@@ -623,19 +663,8 @@
                                             `;
                                         }
                                     })
-                                    .catch(error => {
-                                        console.error('Error loading report content:', error);
-                                        document.getElementById('report-content-body').innerHTML = `
-                                            <tr>
-                                                <td colspan="3" class="px-6 py-4 text-center text-sm text-red-500">
-                                                    Error loading report content. Please try again.
-                                                </td>
-                                            </tr>
-                                        `;
-                                    });
-                                }
-                            });    
-                        });
+                                }    
+                            });
 
                             // Add this function to handle QA report display
                             function displayQAReport(path) {
@@ -746,23 +775,9 @@
                                 window.location.href = downloadUrl;
                             });
                         });
-                    } else {
-                        // No reports found
-                        reportsTableBody.innerHTML = '';
-                        noReportsMessage.classList.remove('hidden');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error loading reports:', error);
-                    reportsTableBody.innerHTML = `
-                        <tr>
-                            <td colspan="5" class="px-6 py-4 text-center text-sm text-red-500">
-                                Error loading reports. Please try again.
-                            </td>
-                        </tr>
-                    `;
-                });
+                    });
             }
+                
 
 
             // Add this function to your JavaScript to process markdown text
@@ -917,6 +932,41 @@
             generateQAReportBtn = document.getElementById('generateQAReport');
 
 
+
+             // Fix for the ground truths format help button
+            const showGtFormatBtn = document.getElementById('show-gt-format');
+            if (showGtFormatBtn) {
+                showGtFormatBtn.addEventListener('click', function() {
+                    const helpText = `
+                        <div class="text-sm">
+                            <h3 class="font-bold mb-2">Ground Truths File Format</h3>
+                            <p>Create a Markdown (.md) file with the following format:</p>
+                            <pre class="bg-gray-100 p-2 mt-2 mb-3 text-xs overflow-auto">
+        ## Question 1:
+        What is the full name of the AMD?
+
+        ## Ground Truth:
+        ADVANCED MICRO DEVICES, INC.
+
+        ## Question 2:
+        What are the main products of AMD?
+
+        ## Ground Truth:
+        AMD's products include x86 microprocessors...</pre>
+                            <p class="font-bold">Important:</p>
+                            <ul class="list-disc pl-5 mb-2">
+                                <li>Questions must match those in the Q&A report exactly</li>
+                                <li>Format must follow the exact pattern shown above</li>
+                                <li>Include ## Question and ## Ground Truth markers</li>
+                            </ul>
+                        </div>
+                    `;
+                    
+                    // Show modal or alert with the help text
+                    showAlert(helpText, 'info');
+                });
+            }
+
             refreshReportsBtn.addEventListener('click', loadReports);
 
                 if (generateQAReportBtn) {
@@ -929,12 +979,6 @@
             document.getElementById('close-report').addEventListener('click', function() {
                 document.getElementById('report-display-section').classList.add('hidden');
             });
-
-
-            
-
-
-            // Process Django messages to add close buttons
             const djangoMessages = document.querySelectorAll('.messages-container > div');
             djangoMessages.forEach(function(message) {
                     // Add a close button
@@ -1156,8 +1200,8 @@
                     showAlert('An error occurred. Please try again.', 'error');
                 });
             });
-
         });
+
     </script>
 </body>
 </html>
