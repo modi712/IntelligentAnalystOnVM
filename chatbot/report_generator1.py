@@ -902,13 +902,50 @@ def evaluate_qa_report_with_ragas(excel_path, ground_truths_path, company_name, 
     Returns:
         Path to the updated Excel file with evaluation metrics
     """
+
+       
+
     try:
         import pandas as pd
         from openpyxl import load_workbook
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         import re
-        
+        import ragas
+        logger.info(f"RAGAS version: {ragas.__version__}")
         logger.info(f"Starting RAGAS evaluation for report: {excel_path}")
+
+
+        # Add this function to report_generator1.py
+        def normalize_question(text):
+            """Normalize a question text for better matching"""
+            if not text:
+                return ""
+            # Remove punctuation
+            text = re.sub(r'[^\w\s]', '', text)
+            # Lowercase
+            text = text.lower()
+            # Remove extra whitespace
+            text = re.sub(r'\s+', ' ', text).strip()
+            return text
+        
+         # Test retriever with a simple query to validate it's working
+        try:
+            # Get retriever for this knowledge base
+            retriever = get_retriever_for_kb(company_name, kb_name)
+            if not retriever:
+                logger.error(f"Could not get retriever for {company_name}/{kb_name}")
+                return None
+                
+            test_docs = retriever.invoke("What is AMD?")
+            if test_docs:
+                logger.info(f"Retriever test successful. Got {len(test_docs)} documents.")
+                logger.info(f"Sample content: {test_docs[0].page_content[:100]}...")
+            else:
+                logger.warning("Retriever test returned no documents!")
+        except Exception as e:
+            logger.error(f"Retriever test failed: {e}")
+            return None
+
         
         # Initialize LLM and embedding wrappers for RAGAS
         try:
@@ -916,11 +953,11 @@ def evaluate_qa_report_with_ragas(excel_path, ground_truths_path, company_name, 
             from ragas.llms import LangchainLLMWrapper
             from ragas.embeddings import LangchainEmbeddingsWrapper
             from ragas.metrics import (
-                LLMContextPrecisionWithReference,
-                LLMContextRecall,
-                ContextEntityRecall,
-                NoiseSensitivity,
-                ResponseRelevancy,
+                # LLMContextPrecisionWithReference,
+                # LLMContextRecall,
+                # ContextEntityRecall,
+                # NoiseSensitivity,
+                # ResponseRelevancy,
                 Faithfulness
             )
             from langchain_core.documents import Document
@@ -934,14 +971,21 @@ def evaluate_qa_report_with_ragas(excel_path, ground_truths_path, company_name, 
             # Define metrics with proper wrappers
             metrics = {
                 'E': ('Faithfulness', Faithfulness(llm=ragas_llm)),
-                'F': ('Response Relevancy', ResponseRelevancy(llm=ragas_llm, embeddings=ragas_embeddings)),
-                'G': ('Context Precision', LLMContextPrecisionWithReference(llm=ragas_llm)),
-                'H': ('Context Recall', LLMContextRecall(llm=ragas_llm)),
-                'I': ('Entity Recall', ContextEntityRecall(llm=ragas_llm)),
-                'J': ('Noise Sensitivity', NoiseSensitivity(llm=ragas_llm))
+                # 'F': ('Response Relevancy', ResponseRelevancy(llm=ragas_llm, embeddings=ragas_embeddings)),
+                # 'G': ('Context Precision', LLMContextPrecisionWithReference(llm=ragas_llm)),
+                # 'H': ('Context Recall', LLMContextRecall(llm=ragas_llm)),
+                # 'I': ('Entity Recall', ContextEntityRecall(llm=ragas_llm)),
+                # 'J': ('Noise Sensitivity', NoiseSensitivity(llm=ragas_llm))
             }
             
             logger.info("Successfully initialized RAGAS metrics")
+
+            try:
+                from ragas.metrics import answer_relevancy
+                metrics['F'] = ('Relevancy', answer_relevancy)
+                logger.info("✓ Added Relevancy metric")
+            except ImportError:
+                logger.warning("Could not import answer_relevancy metric")
             
         except ImportError as ie:
             logger.error(f"RAGAS library import error: {ie}")
@@ -961,6 +1005,9 @@ def evaluate_qa_report_with_ragas(excel_path, ground_truths_path, company_name, 
         # Load the ground truths from the file
         with open(ground_truths_path, 'r', encoding='utf-8') as f:
             ground_truths_content = f.read()
+
+        logger.info(f"Ground truths file contents preview: {ground_truths_content[:200]}...")
+        logger.info(f"File size: {len(ground_truths_content)} characters")
         
         # Parse the ground truths file based on its format
         ground_truths = []
@@ -1000,29 +1047,59 @@ def evaluate_qa_report_with_ragas(excel_path, ground_truths_path, company_name, 
         
         if not ground_truths:
             logger.error(f"Could not parse any questions from ground truths file: {ground_truths_path}")
+            logger.error(f"File content preview: {ground_truths_content[:500]}...")
             return None
             
         logger.info(f"Parsed {len(ground_truths)} questions from ground truths file")
         
         # For each question, retrieve context using the retriever
+        # Replace the context retrieval section in evaluate_qa_report_with_ragas
         for q_data in ground_truths:
             question = q_data["question"]
             
             # Use the retriever to get relevant context
             try:
+                # Add debug log
+                logger.info(f"Retrieving context for ground truth question: '{question}'")
+                
+                # Test retriever first
                 retrieved_docs = retriever.invoke(question)
-                if retrieved_docs:
+                
+                if retrieved_docs and len(retrieved_docs) > 0:
+                    # Log success
+                    logger.info(f"✓ Retrieved {len(retrieved_docs)} documents for ground truth question")
+                    
                     # Get text from docs and join
-                    context_texts = [doc.page_content for doc in retrieved_docs]
+                    context_texts = [doc.page_content for doc in retrieved_docs if hasattr(doc, 'page_content') and doc.page_content]
                     context = "\n\n".join(context_texts)
                     q_data["context"] = context
-                    q_data["context_docs"] = retrieved_docs
+                    
+                    # Convert to Document objects explicitly
+                    q_data["context_docs"] = []
+                    for doc in retrieved_docs:
+                        if hasattr(doc, 'page_content') and doc.page_content:
+                            q_data["context_docs"].append(
+                                Document(page_content=doc.page_content, 
+                                        metadata=doc.metadata if hasattr(doc, 'metadata') else {})
+                            )
+                    
+                    # Verify we have context docs
+                    logger.info(f"✓ Created {len(q_data['context_docs'])} context documents")
+                    if len(q_data["context_docs"]) > 0:
+                        logger.info(f"  First context doc preview: {q_data['context_docs'][0].page_content[:100]}...")
                 else:
-                    logger.warning(f"No context found for question: {question}")
+                    logger.warning(f"✗ No context found for ground truth question: '{question}'")
+                    # For debugging: try a simpler query
+                    test_docs = retriever.invoke("AMD")
+                    if test_docs:
+                        logger.info(f"Test query 'AMD' returned {len(test_docs)} docs, but original question returned none")
+                    
+                    # Still create empty context to avoid errors
                     q_data["context"] = ""
                     q_data["context_docs"] = []
             except Exception as e:
-                logger.error(f"Error retrieving context for question '{question}': {e}")
+                logger.error(f"Error retrieving context for ground truth question '{question}': {e}")
+                logger.error(traceback.format_exc())
                 q_data["context"] = ""
                 q_data["context_docs"] = []
         
@@ -1058,29 +1135,103 @@ def evaluate_qa_report_with_ragas(excel_path, ground_truths_path, company_name, 
         def evaluate_metrics(question, answer, contexts, ground_truth, metrics_dict):
             results = {}
             
-            # Import SingleTurnSample if needed
-            from ragas.single_turn import SingleTurnSample
+            logger.info(f"Evaluating: '{question[:50]}...'")
+            logger.info(f"  Answer: '{answer[:50]}...'")
+            logger.info(f"  Ground truth: '{ground_truth[:50]}...'")
+            logger.info(f"  Contexts: {len(contexts)} documents")
             
-            # Create RAGAS sample
-            sample = SingleTurnSample(
-                question=question,
-                answer=answer,
-                contexts=contexts,
-                ground_truth=ground_truth
-            )
+            # try:
+            #     # Try different import paths based on RAGAS version
+            #     try:
+            #         from ragas.single_turn import SingleTurnSample
+            #         logger.info("Using ragas.single_turn.SingleTurnSample")
+            #     except ImportError:
+            #         try:
+            #             # For older versions
+            #             from ragas.evaluation import SingleTurnSample
+            #             logger.info("Using ragas.evaluation.SingleTurnSample")
+            #         except ImportError:
+            #             # For newer versions
+            #             from ragas import evaluate_ragas_sample
+            #             logger.info("Using ragas.evaluate_ragas_sample approach")
+                        
+            #             # In this case, we'll use evaluate_ragas_sample directly instead of SingleTurnSample
+            #             for col, (metric_name, metric) in metrics_dict.items():
+            #                 try:
+            #                     # Create a dict for evaluate_ragas_sample
+            #                     sample = {
+            #                         "question": question,
+            #                         "answer": answer,
+            #                         "contexts": [doc.page_content for doc in contexts],
+            #                         "ground_truth": ground_truth
+            #                     }
+            #                     score = metric.score(sample)
+            #                     logger.info(f"{metric_name} score: {score}")
+            #                     results[col] = score
+            #                 except Exception as e:
+            #                     logger.error(f"Error calculating {metric_name}: {e}")
+            #                     logger.error(traceback.format_exc())
+            #                     results[col] = None
+            #             return results
+                
+            #     # Create RAGAS sample the standard way if imports worked
+            #     sample = SingleTurnSample(
+            #         question=question,
+            #         answer=answer,
+            #         contexts=contexts,
+            #         ground_truth=ground_truth
+            #     )
+                
+            #     # Evaluate each metric
+            #     for col, (metric_name, metric) in metrics_dict.items():
+            #         try:
+            #             logger.info(f"Calculating {metric_name}...")
+            #             score = metric.single_turn_score(sample)
+            #             logger.info(f"{metric_name} score: {score}")
+            #             results[col] = score
+            #         except Exception as e:
+            #             logger.error(f"Error calculating {metric_name}: {e}")
+            #             logger.error(traceback.format_exc())
+            #             results[col] = None
+            # except Exception as e:
+            #     logger.error(f"Error evaluating metrics: {e}")
+            #     logger.error(traceback.format_exc())
             
-            # Evaluate each metric
-            for col, (metric_name, metric) in metrics_dict.items():
+            # return results        
+
+            for col, (metric_name, metric_func) in metrics_dict.items():
                 try:
-                    score = metric.single_turn_score(sample)
-                    results[col] = score
+                    logger.info(f"  Calculating {metric_name}...")
+                    
+                    # For faithfulness metric
+                    if metric_name == 'Faithfulness':
+                        score_df = metric_func.score(
+                            question=[question],
+                            answer=[answer],
+                            contexts=[[doc for doc in contexts]]
+                        )
+                        value = score_df['faithfulness'].iloc[0]
+                        
+                    # For relevancy metric
+                    elif metric_name == 'Relevancy':
+                        score_df = metric_func.score(
+                            question=[question],
+                            answer=[answer]
+                        )
+                        value = score_df['answer_relevancy'].iloc[0]
+                    else:
+                        logger.warning(f"Unsupported metric: {metric_name}")
+                        continue
+                        
+                    logger.info(f"  ✓ {metric_name} score: {value:.4f}")
+                    results[col] = value
+                    
                 except Exception as e:
-                    logger.error(f"Error calculating {metric_name}: {e}")
+                    logger.error(f"  ✗ Error calculating {metric_name}: {e}")
                     logger.error(traceback.format_exc())
                     results[col] = None
-            
+                    
             return results
-        
         while row <= ws.max_row:
             # Skip if row is a category header (merged cells)
             try:
@@ -1106,32 +1257,113 @@ def evaluate_qa_report_with_ragas(excel_path, ground_truths_path, company_name, 
             
             # Find matching ground truth
             matching_gt = None
-            for gt in ground_truths:
-                # Simple matching by checking if question contains the ground truth question or vice versa
-                if (gt["question"].lower() in question_cell_value.lower() or 
-                    question_cell_value.lower() in gt["question"].lower()):
+            best_match_score = 0
+
+            # First make sure we have question_cell_value
+            if not question_cell_value:
+                logger.warning("Question cell value is empty, skipping this row")
+                row += 1
+                continue
+
+            question_norm = normalize_question(question_cell_value)
+
+
+            # Log the current question we're trying to match
+            logger.info(f"Trying to match question: '{question_cell_value}'")
+            logger.info(f"Normalized question: '{question_norm}'")
+
+            # Debug all available ground truth questions
+            logger.info(f"Available ground truth questions ({len(ground_truths)}):")
+            for idx, gt in enumerate(ground_truths):
+                gt_norm = normalize_question(gt["question"])
+                logger.info(f"  GT #{idx+1}: '{gt['question']}'")
+                logger.info(f"  GT #{idx+1} normalized: '{gt_norm}'")
+                
+                # Check for exact match (normalized)
+                if gt_norm == question_norm:
                     matching_gt = gt
+                    logger.info(f"  EXACT MATCH FOUND!")
                     break
-
-                # Try substring matching with score
-                q1_words = set(gt["question"].lower().split())
-                q2_words = set(question_cell_value.lower().split())
-                common_words = q1_words.intersection(q2_words)
-
-                # Calculate Jaccard similarity
-                if len(q1_words) > 0 and len(q2_words) > 0:
-                    similarity = len(common_words) / len(q1_words.union(q2_words))
-                    if similarity > 0.5 and similarity > best_match_score:  # Require 50% similarity
+                
+                # Calculate similarity score
+                # Jaccard similarity on word sets
+                q1_words = set(gt_norm.split())
+                q2_words = set(question_norm.split())
+                
+                if q1_words and q2_words:
+                    # Calculate Jaccard similarity
+                    similarity = len(q1_words.intersection(q2_words)) / len(q1_words.union(q2_words))
+                    logger.info(f"  Similarity: {similarity:.2f}")
+                    
+                    if similarity > 0.5 and similarity > best_match_score:  # At least 50% similar
                         matching_gt = gt
                         best_match_score = similarity
+                        logger.info(f"  NEW BEST MATCH: Score {similarity:.2f}")
 
-                logger.info(f"Question: '{question_cell_value}' - Found match: {matching_gt is not None}")
-                if matching_gt:
-                    logger.info(f"Matched with GT question: '{matching_gt['question']}'")
-            
+            if matching_gt:
+                logger.info(f"Found matching ground truth: '{matching_gt['question']}'")
+            else:
+                logger.info(f"No matching ground truth found for: '{question_cell_value}'")
+                
+                # Try to find any match if nothing found with good similarity
+                if not matching_gt and ground_truths:
+                    # If no match found but we have ground truths, use the first one as a fallback
+                    logger.warning(f"No good match found, trying with lower threshold")
+                    
+                    # Simple word overlap scoring
+                    best_match = None
+                    best_score = 0
+                    
+                    # 1. First try exact match
+                    for gt in ground_truths:
+                        if normalize_question(gt["question"]) == question_norm:
+                            matching_gt = gt
+                            logger.info(f"✓ EXACT MATCH: '{gt['question']}'")
+                            break
+
+                    # 2. If no exact match, try substring matching
+                    if not matching_gt:
+                        for gt in ground_truths:
+                            gt_norm = normalize_question(gt["question"])
+                            # Check if one is substring of the other
+                            if gt_norm in question_norm or question_norm in gt_norm:
+                                matching_gt = gt
+                                logger.info(f"✓ SUBSTRING MATCH: '{gt['question']}'")
+                                break
+                    # 3. If still no match, use word overlap similarity
+                    if not matching_gt:
+                        for gt in ground_truths:
+                            gt_norm = normalize_question(gt["question"])
+                            # Calculate word overlap
+                            q1_words = set(gt_norm.split())
+                            q2_words = set(question_norm.split())
+                            
+                            if q1_words and q2_words:
+                                # Calculate Jaccard similarity - just once per ground truth
+                                intersection = len(q1_words.intersection(q2_words))
+                                union = len(q1_words.union(q2_words))
+                                similarity = intersection / union if union > 0 else 0
+                                
+                                if similarity > 0.5 and similarity > best_match_score:
+                                    matching_gt = gt
+                                    best_match_score = similarity
+                                    logger.info(f"✓ SIMILARITY MATCH ({similarity:.2f}): '{gt['question']}'")
+                    # Log the final result
+                    if matching_gt:
+                        logger.info(f"✓ MATCH FOUND: '{matching_gt['question']}'")
+                    else:
+                        logger.info(f"✗ NO MATCH FOUND for: '{question_cell_value}'")
+                                        
             if matching_gt and "context_docs" in matching_gt and matching_gt["context_docs"]:
                 # Calculate RAGAS metrics
                 try:
+                    # Create explicit parameters
+                    eval_question = question_cell_value
+                    eval_answer = ai_answer
+                    eval_contexts = matching_gt["context_docs"]
+                    eval_ground_truth = matching_gt["ground_truth"]
+                    
+                    logger.info(f"Evaluating question with {len(eval_contexts)} context documents")
                     # Get all scores at once
                     metric_results = evaluate_metrics(
                         question=question_cell_value,
@@ -1140,7 +1372,6 @@ def evaluate_qa_report_with_ragas(excel_path, ground_truths_path, company_name, 
                         ground_truth=matching_gt["ground_truth"],
                         metrics_dict=metrics
                     )
-                    
                     # Add scores to Excel and tracking
                     for col, score in metric_results.items():
                         if score is not None:
@@ -1149,13 +1380,13 @@ def evaluate_qa_report_with_ragas(excel_path, ground_truths_path, company_name, 
                                 metrics_by_category[col][category] = []
                             
                             # Add to Excel
-                            ws.cell(row=row, column=ord(col) - ord('A') + 1).value = round(score, 2)
+                            ws.cell(row=row,column=ord(col) - ord('A') + 1).value = round(score, 2)
                             
                             # Track for averages
                             metrics_by_category[col][category].append(score)
                         else:
-                            ws.cell(row=row, column=ord(col) - ord('A') + 1).value = "Error"
-                    
+                            ws.cell(row=row,column=ord(col) - ord('A') + 1).value = "Error"
+
                 except Exception as eval_error:
                     logger.error(f"Error evaluating question '{question_cell_value}': {eval_error}")
                     logger.error(traceback.format_exc())
@@ -1163,12 +1394,19 @@ def evaluate_qa_report_with_ragas(excel_path, ground_truths_path, company_name, 
                     for col in metrics.keys():
                         ws.cell(row=row, column=ord(col) - ord('A') + 1).value = "N/A"
             else:
+                if not matching_gt:
+                    logger.error(f"No matching ground truth found for: '{question_cell_value}'")
+                elif not "context_docs" in matching_gt:
+                    logger.error(f"Ground truth match found but no 'context_docs' key: {matching_gt.keys()}")
+                elif not matching_gt["context_docs"]:
+                    logger.error(f"Ground truth match found but 'context_docs' is empty")
+                else:
+                    logger.info(f"Ground truth and context found! Ready to evaluate.")
                 # No matching ground truth or no context found
                 for col in metrics.keys():
                     ws.cell(row=row, column=ord(col) - ord('A') + 1).value = "No GT/Context"
-            
-            row += 1
-        
+            row +=1
+                                
         # Add a summary section
         row = ws.max_row + 2
         max_col = chr(ord('A') + len(metrics))
@@ -1244,3 +1482,5 @@ def evaluate_qa_report_with_ragas(excel_path, ground_truths_path, company_name, 
         logger.error(f"Error in RAGAS evaluation: {e}")
         logger.error(traceback.format_exc())
         return None
+    
+

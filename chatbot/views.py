@@ -12,7 +12,7 @@ import logging
 from django.shortcuts import get_object_or_404,redirect
 import json
 from openpyxl import load_workbook
-
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -282,22 +282,41 @@ def generate_report(request):
                         'message': 'Excel report generated successfully',
                         'report_path': report_path
                     }
+
+                    # After successfully generating the report
+                    if 'generated_reports' not in request.session:
+                        request.session['generated_reports'] = []
+
+                     # Add the new report to the session
+                    request.session['generated_reports'].append({
+                        'company': company_name,
+                        'kb_name': kb_name,
+                        'report_type': report_type,
+                        'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'report_path': report_path
+                    })
+
+                     # Save session changes
+                    request.session.modified = True
+
+
+                     # Still save to database for permanent storage
+                    from .models import Report
+                    Report.objects.create(
+                        company=company_name,
+                        kb_name=kb_name,
+                        report_path=report_path,
+                        report_type=report_type
+                    )
                 else:
                     logger.error(f"Failed to generate Excel report for {company_name}/{kb_name}")
                     result = {
-                        'success': False,
-                        'message': 'Failed to generate Excel report'
+                            'success': False,
+                            'message': 'Failed to generate Excel report'
                     }
             
-            # If successful, save the report information
-            if result['success']:
-                from .models import Report
-                Report.objects.create(
-                    company=company_name,
-                    kb_name=kb_name,
-                    report_path=result['report_path'],
-                    report_type=report_type
-                )
+            
+           
             
             # Return the result
             return JsonResponse(result)
@@ -602,8 +621,35 @@ def generate_qa_report(request):
             'message': 'Invalid request method'
         }, status=405)
     
+def get_session_reports(request):
+    """Return only reports generated in the current session."""
+    try:
+        # Get reports only from the current session
+        session_reports = request.session.get('generated_reports', [])
+        
+        # Format reports for the frontend
+        reports = []
+        for report in session_reports:
+            reports.append({
+                'company': report.get('company', ''),
+                'kb_name': report.get('kb_name', ''),
+                'report_type': report.get('report_type', ''),
+                'created_at': report.get('created_at', ''),
+                'report_path': report.get('report_path', '')
+            })
+            
+        return JsonResponse({
+            'success': True,
+            'reports': reports
+        })
+    except Exception as e:
+        logger.error(f"Error getting session reports: {e}")
+        return JsonResponse({
+            'success': False,
+            'message': 'Error retrieving reports'
+        })
+    
 
-@csrf_exempt
 def upload_ground_truths(request):
     """
     View function to upload ground truths file
@@ -677,5 +723,6 @@ __all__ = [
     'download_report',
     'get_reports',
     'get_report_content',
-    'upload_ground_truths'
+    'upload_ground_truths',
+    'get_session_reports'
 ]

@@ -22,7 +22,8 @@ urlpatterns = [
     path('get-report-content/<path:report_path>/', views.get_report_content, name='get_report_content'),
     path('download-report/<path:report_path>/', views.download_report, name='download_report'),
     path('generate-qa-report/', views.generate_qa_report, name='generate_qa_report'),
-    path('upload-ground-truths/', views.upload_ground_truths, name='upload_ground_truths')
+    path('upload-ground-truths/', views.upload_ground_truths, name='upload_ground_truths'),
+    path('get-session-reports/', views.get_session_reports, name='get_session_reports'),
 ]
 
 # Add this to serve media files in development
