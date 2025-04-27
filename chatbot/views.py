@@ -6,12 +6,13 @@ from .chatbot_logic import get_ai_response
 from .models import KnowledgeBase, KnowledgeBaseFile
 from .forms import CreateKBForm, KnowledgeBaseFileForm
 from django.contrib import messages
-from .report_generator import generate_report_from_files, generate_report_from_kb,generate_chat_response, create_vector_store1
+from .report_generator1 import  generate_chat_response, create_vector_store1,generate_excel_report_from_kb,generate_qa_report_from_kb,get_retriever_for_kb
 import os
 import logging
 from django.shortcuts import get_object_or_404,redirect
 import json
-
+from openpyxl import load_workbook
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -101,18 +102,51 @@ def index(request):
     """
     View function for the home page of the chatbot.
     """
-    # Get list of companies for the dropdown
-    companies = KnowledgeBase.objects.values_list('company', flat=True).distinct()
+    # Get list of companies from the database
+    from .models import Company
+    companies = list(Company.objects.values_list('name', flat=True))
     
     # Default if no companies exist
     if not companies:
-        companies = ["Central Bank of Bahrain"]
-    
+        # Add default company if none exist
+        default_company = "Central Bank of Bahrain"
+        Company.objects.create(name=default_company)
+        companies = [default_company]
+
     context = {
         'companies': companies,
     }
     return render(request, 'index.html', context)
 
+def add_company(request):
+    """Add a new company to the system"""
+    if request.method == 'POST':
+        try:
+            # Get company name from form
+            company_name = request.POST.get('company_name', '').strip()
+            
+            if not company_name:
+                return JsonResponse({'success': False, 'message': 'Company name is required'})
+            
+            # Check if company already exists
+            from .models import Company
+            if Company.objects.filter(name=company_name).exists():
+                return JsonResponse({'success': False, 'message': 'Company already exists'})
+            
+            # Create new company (directories are created in the save method)
+            company = Company.objects.create(name=company_name)
+            
+            return JsonResponse({
+                'success': True, 
+                'message': f'Company "{company_name}" added successfully',
+                'company_name': company_name
+            })
+            
+        except Exception as e:
+            logger.error(f"Error adding company: {e}")
+            return JsonResponse({'success': False, 'message': f"Error: {str(e)}"})
+    
+    return JsonResponse({'success': False, 'message': 'Invalid request method'})
 
 
 def create_knowledge_base(request):
@@ -120,6 +154,11 @@ def create_knowledge_base(request):
     View function to create a new knowledge base
     """
     selected_company = request.GET.get('company', 'Default Company')
+
+     # Ensure company exists
+    from .models import Company
+    if not Company.objects.filter(name=selected_company).exists():
+        Company.objects.create(name=selected_company)
     
     if request.method == 'POST':
         kb_form = CreateKBForm(request.POST, company=selected_company)
@@ -128,6 +167,10 @@ def create_knowledge_base(request):
             try:
                 # Create the knowledge base
                 kb = kb_form.save()
+
+
+                 # Add the company to the context for the response
+                new_company = selected_company
                 
                 # Handle multiple file uploads
                 files = request.FILES.getlist('files')
@@ -152,15 +195,17 @@ def create_knowledge_base(request):
                 
                 # Create vector store
                 try:
-                    from .report_generator import create_vector_store1
+                    from .report_generator1 import create_vector_store1
                     retriever = create_vector_store1(files, sanitized_kb_name, selected_company)
                     if retriever is None:
                         messages.error(request, "Failed to create vector store. Check logs for details.")
                     else:
-                        messages.success(request, f"Knowledge base '{kb.name}' created successfully with {len(files)} files.")
+                        messages.success(request, f"Knowledge base '{kb.name}' created successfully with {len(files)} files for company '{new_company}'.")
                 except Exception as e:
                     logger.error(f"Error creating vector store: {e}")
                     messages.error(request, f"Error creating knowledge base: {str(e)}")
+
+
                 
                 return redirect('index')
             except Exception as e:
@@ -174,6 +219,7 @@ def create_knowledge_base(request):
     }
     return render(request, 'create_kb.html', context)
 
+
 def get_knowledge_bases(request):
     """AJAX view to get knowledge bases for a company"""
     company = request.GET.get('company', '')
@@ -182,12 +228,16 @@ def get_knowledge_bases(request):
     
     if company:
         folder_path = "media/vector_stores/" + company
+        
+        # Check if directory exists
+        if not os.path.exists(folder_path):
+            # Create directory if it doesn't exist
+            os.makedirs(folder_path)
+            return JsonResponse({'knowledge_bases': []})
+            
         file_names = os.listdir(folder_path)
-
-        #knowledge_bases = KnowledgeBase.objects.filter(company=company).values('id', 'name')
         result = {'knowledge_bases': file_names}
         print(f"Returning {len(file_names)} knowledge bases: {result}")
-        print("string" , JsonResponse(result))
         return JsonResponse(result)
     else:
         print("No company provided, returning empty list")
@@ -196,106 +246,483 @@ def get_knowledge_bases(request):
 
 
 def generate_report(request):
-    """Handle report generation requests"""
+    """
+    View function to generate a report for a knowledge base
+    """
     if request.method == 'POST':
         try:
-            # Get parameters from the request
-            company_name = request.POST.get('company', '')
-            kb_id = request.POST.get('kb_id', None)
+            # Parse JSON data
+            data = json.loads(request.body)
+            company_name = data.get('company')
+            kb_name = data.get('kb_name')
+            report_type = data.get('report_type', 'excel')  
             
-            if not company_name:
-                return JsonResponse({'success': False, 'message': 'Company name is required'})
+            # Validate input
+            if not company_name or not kb_name:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'Company name and knowledge base name are required'
+                })
             
-            # Check if we're using an existing KB or creating a new one
-            if kb_id:
-                # Using existing KB
-                kb = get_object_or_404(KnowledgeBase, id=kb_id)
-                kb_name = kb.name
+            # Initialize result
+            result = {
+                'success': False,
+                'message': 'Report generation failed'
+            }
+            
+            # Generate the requested report type
+            if report_type == 'excel':
+                logger.info(f"Generating Excel report for {company_name}/{kb_name}")
+                report_path = generate_excel_report_from_kb(company_name, kb_name)
+                logger.info(f"Report path: {report_path}")
                 
-                # Generate report from KB
-                result = generate_report_from_kb(company_name, kb_name)
-                
-                if result['success']:
-                    # Return the path to the generated report for download
-                    return JsonResponse({
-                        'success': True, 
-                        'message': result['message'],
-                        'report_url': f"/download-report/{os.path.basename(result['report_path'])}/",
+                if report_path:
+                    result = {
+                        'success': True,
+                        'message': 'Excel report generated successfully',
+                        'report_path': report_path
+                    }
+
+                    # After successfully generating the report
+                    if 'generated_reports' not in request.session:
+                        request.session['generated_reports'] = []
+
+                     # Add the new report to the session
+                    request.session['generated_reports'].append({
+                        'company': company_name,
+                        'kb_name': kb_name,
+                        'report_type': report_type,
+                        'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'report_path': report_path
                     })
+
+                     # Save session changes
+                    request.session.modified = True
+
+
+                     # Still save to database for permanent storage
+                    from .models import Report
+                    Report.objects.create(
+                        company=company_name,
+                        kb_name=kb_name,
+                        report_path=report_path,
+                        report_type=report_type
+                    )
                 else:
-                    return JsonResponse({'success': False, 'message': result['message']})
-                
-            else:
-                # Check if files were uploaded
-                files = request.FILES.getlist('files')
-                if not files:
-                    return JsonResponse({'success': False, 'message': 'No files uploaded'})
-                
-                # Generate KB name
-                import datetime
-                kb_name = f"{company_name.replace(' ', '')}{datetime.date.today().strftime('%Y%m%d')}"
-                
-                # Generate report from files
-                result = generate_report_from_files(company_name, kb_name, files)
-                
-                if result['success']:
-                    # Return the path to the generated report for download
-                    return JsonResponse({
-                        'success': True, 
-                        'message': result['message'],
-                        'report_url': f"/download-report/{os.path.basename(result['report_path'])}/",
-                    })
-                else:
-                    return JsonResponse({'success': False, 'message': result['message']})
-                
+                    logger.error(f"Failed to generate Excel report for {company_name}/{kb_name}")
+                    result = {
+                            'success': False,
+                            'message': 'Failed to generate Excel report'
+                    }
+            
+            
+           
+            
+            # Return the result
+            return JsonResponse(result)
+            
         except Exception as e:
             logger.error(f"Error generating report: {e}")
-            return JsonResponse({'success': False, 'message': f"Error: {str(e)}"})
+            return JsonResponse({
+                'success': False,
+                'message': f"Error: {str(e)}"
+            })
+    else:
+        return JsonResponse({
+            'success': False,
+            'message': 'Invalid request method'
+        }, status=405)    
+
+# Add this new function
+
+def get_reports(request):
+    """
+    View function to get all generated reports
+    """
+    try:
+        from .models import Report
+        reports = Report.objects.all()
+        
+        reports_data = []
+        for report in reports:
+            reports_data.append({
+                'id': report.id,
+                'company': report.company,
+                'kb_name': report.kb_name,
+                'report_type': report.report_type,
+                'created_at': report.created_at.strftime('%Y-%m-%d %H:%M'),
+                'report_path': report.report_path
+            })
+        
+        return JsonResponse({'success': True, 'reports': reports_data})
+    except Exception as e:
+        logger.error(f"Error fetching reports: {e}")
+        return JsonResponse({
+            'success': False,
+            'message': f"Error: {str(e)}"
+        })
     
-    # If not a POST request, return error
-    return JsonResponse({'success': False, 'message': 'Invalid request method'})
+def get_report_content(request, report_path):
+    """
+    View function to read Excel report content and return it as JSON
+    """
+    try:
+        # Check if file exists
+        if not os.path.exists(report_path):
+            return JsonResponse({
+                'success': False,
+                'message': 'Report file not found'
+            }, status=404)
+        
+        # Check if file is an Excel file
+        if not report_path.endswith('.xlsx'):
+            return JsonResponse({
+                'success': False,
+                'message': 'File is not an Excel report'
+            }, status=400)
+        
+        # Load the workbook
+        wb = load_workbook(filename=report_path)
+        ws = wb.active
+        
+        # Extract the company name from the title cell (A1)
+        title = ws['A1'].value
+        company_name = title.split(' - ')[0] if ' - ' in title else 'Company'
+
+        # Check if this is a QA report by looking at the headers
+        qa_report = False
+        if ws['D3'].value and "AI" in ws['D3'].value:
+            qa_report = True
+        
+        if qa_report:
+            # Process as a Q&A report
+            report_data = {
+                'title': title,
+                'qa_data': {}
+            }
+             # Start from row 4 (after headers)
+            current_category = None
+            for row in range(4, ws.max_row + 1):
+                # Check if this is a category row (merged cells)
+                merged_cell_ranges = [str(cell_range) for cell_range in ws.merged_cells.ranges]
+                current_cell = f'A{row}:D{row}'
+                
+                if current_cell in merged_cell_ranges:
+                    # Start a new category
+                    current_category = ws[f'A{row}'].value
+                    report_data['qa_data'][current_category] = []
+                else:
+                    # Regular question row
+                    question_type = ws[f'A{row}'].value
+                    question = ws[f'B{row}'].value
+                    analyst_answer = ws[f'C{row}'].value
+                    ai_answer = ws[f'D{row}'].value
+                    
+                    if question and (analyst_answer or ai_answer):
+                        report_data['qa_data'][current_category].append({
+                            'question': question,
+                            'analyst_answer': analyst_answer or "Not provided",
+                            'ai_answer': ai_answer or "Not provided"
+                        })
+            
+            return JsonResponse({
+                'success': True,
+                'report_data': report_data
+            })
+        else:
+            # Initialize data structure
+            report_data = {
+                'title': title,
+                'company': company_name,
+                'categories': []
+            }
+            
+            # Process the rows and collect the data
+            current_category = None
+            category_questions = []
+            
+            # Start from row 4 (after headers)
+            for row in range(4, ws.max_row + 1):
+                # Check if this is a category row (merged cells)
+                merged_cell_ranges = [str(cell_range) for cell_range in ws.merged_cells.ranges]
+                current_cell = f'A{row}:C{row}'
+                
+                if current_cell in merged_cell_ranges:
+                    # If we already have a category, add it to the report data
+                    if current_category and category_questions:
+                        report_data['categories'].append({
+                            'name': current_category,
+                            'questions': category_questions
+                        })
+                    
+                    # Start a new category
+                    current_category = ws[f'A{row}'].value
+                    category_questions = []
+                else:
+                    # Regular question row
+                    question = ws[f'B{row}'].value
+                    answer = ws[f'C{row}'].value
+                    
+                    if question and answer:
+                        category_questions.append({
+                            'question': question,
+                            'answer': answer
+                        })
+            
+            # Add the last category if there is one
+            if current_category and category_questions:
+                report_data['categories'].append({
+                    'name': current_category,
+                    'questions': category_questions
+                })
+            
+            return JsonResponse({
+                'success': True,
+                'report_data': report_data
+            })
+            
+    except Exception as e:
+            logger.error(f"Error reading report content: {e}")
+            return JsonResponse({
+                'success': False,
+                'message': f"Error reading report content: {str(e)}"
+            }, status=500)
 
 
+    
 
 def download_report(request, report_path):
-    """Handle report download requests"""
+    """
+    View function to download a generated report
+    """
     try:
-        # Search for the report in the report directory
-        from django.conf import settings
-        import os
+        # Validate the file exists
+        if not os.path.exists(report_path):
+            return JsonResponse({
+                'success': False,
+                'message': 'Report file not found'
+            }, status=404)
         
-        # Find the full path of the report
-        for root, dirs, files in os.walk(settings.MEDIA_ROOT):
-            for file in files:
-                if file == report_path:
-                    file_path = os.path.join(root, file)
-                    
-                    # Set the appropriate content type based on file extension
-                    content_type = 'application/pdf' if file_path.lower().endswith('.pdf') else 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-                    
-                    response = FileResponse(open(file_path, 'rb'), content_type=content_type)
-                    response['Content-Disposition'] = f'attachment; filename="{os.path.basename(file_path)}"'
-                    return response
+        # Get the file extension
+        file_extension = os.path.splitext(report_path)[1].lower()
         
-        # If report not found
-        messages.error(request, f"Report not found: {report_path}")
-        return redirect('index')
+        # Set the content type based on file extension
+        content_types = {
+            '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            '.pdf': 'application/pdf',
+            '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        }
+        
+        content_type = content_types.get(file_extension, 'application/octet-stream')
+
+         # Get view parameter - if true, try to display in browser
+        view = request.GET.get('view', 'false').lower() == 'true'
+        
+        # Create a FileResponse
+        response = FileResponse(open(report_path, 'rb'), content_type=content_type)
+
+         # Set the content disposition based on the view parameter
+        if view and file_extension == '.pdf':
+            # PDF files can be displayed in-browser
+            response['Content-Disposition'] = f'inline; filename="{os.path.basename(report_path)}"'
+        else:
+            # All other files should be downloaded
+            response['Content-Disposition'] = f'attachment; filename="{os.path.basename(report_path)}"'
+        
+        return response
         
     except Exception as e:
         logger.error(f"Error downloading report: {e}")
-        messages.error(request, f"Error downloading report: {str(e)}")
-        return redirect('index')
+        return JsonResponse({
+            'success': False,
+            'message': f"Error: {str(e)}"
+        }, status=500)
     
 
+def generate_qa_report(request):
+    """
+    View function to generate a question-based report for a knowledge base
+    """
+    if request.method == 'POST':
+        try:
+            # Parse JSON data
+            data = json.loads(request.body)
+            company_name = data.get('company')
+            kb_name = data.get('kb_name')
+            ground_truths_path = data.get('ground_truths_path')
+            
+            logger.info(f"Generating QA report for {company_name}/{kb_name}")
+            logger.info(f"Ground truths path: {ground_truths_path}")
+            
+            # Validate input
+            if not company_name or not kb_name:
+                logger.error("Missing company name or KB name")
+                return JsonResponse({
+                    'success': False,
+                    'message': 'Company name and knowledge base name are required'
+                })
+            
+            # Check if ground truths file exists if provided
+            if ground_truths_path:
+                if not os.path.exists(ground_truths_path):
+                    logger.warning(f"Ground truths file not found at {ground_truths_path}")
+                    ground_truths_path = None
+                else:
+                    logger.info(f"Ground truths file confirmed at {ground_truths_path}")
+            
+            # Get the retriever for this knowledge base
+            retriever = get_retriever_for_kb(company_name, kb_name)
+            if not retriever:
+                logger.error(f"Failed to get retriever for {company_name}/{kb_name}")
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Knowledge base not found for {company_name}/{kb_name}'
+                })
+            
+            
+            # Generate the report using the predefined question set
+            logger.info("Retrieved retriever, now generating report...")
+            report_path = generate_qa_report_from_kb(company_name, kb_name, retriever,ground_truths_path)
+            
+            if not report_path:
+                logger.error("Failed to generate report, return path was None")
+                return JsonResponse({
+                    'success': False,
+                    'message': 'Failed to generate QA report'
+                })
+                
+            # Success - save to database and return
+            logger.info(f"Report successfully generated at: {report_path}")
+            from .models import Report
+            Report.objects.create(
+                company=company_name,
+                kb_name=kb_name,
+                report_path=report_path,
+                report_type='qa_excel_evaluated' if ground_truths_path else 'qa_excel'
+            )
+            
+            return JsonResponse({
+                'success': True,
+                'message': 'Q&A Report generated successfully',
+                'report_path': report_path
+            })
+            
+        except Exception as e:
+            logger.error(f"Error generating Q&A report: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return JsonResponse({
+                'success': False,
+                'message': f"Error: {str(e)}"
+            })
+    else:
+        return JsonResponse({
+            'success': False,
+            'message': 'Invalid request method'
+        }, status=405)
+    
+def get_session_reports(request):
+    """Return only reports generated in the current session."""
+    try:
+        # Get reports only from the current session
+        session_reports = request.session.get('generated_reports', [])
+        
+        # Format reports for the frontend
+        reports = []
+        for report in session_reports:
+            reports.append({
+                'company': report.get('company', ''),
+                'kb_name': report.get('kb_name', ''),
+                'report_type': report.get('report_type', ''),
+                'created_at': report.get('created_at', ''),
+                'report_path': report.get('report_path', '')
+            })
+            
+        return JsonResponse({
+            'success': True,
+            'reports': reports
+        })
+    except Exception as e:
+        logger.error(f"Error getting session reports: {e}")
+        return JsonResponse({
+            'success': False,
+            'message': 'Error retrieving reports'
+        })
+    
 
-    # Export the login and logout views explicitly
+def upload_ground_truths(request):
+    """
+    View function to upload ground truths file
+    """
+    if request.method == 'POST':
+        try:
+            # Get form data
+            file_obj = request.FILES.get('file')
+            company_name = request.POST.get('company')
+            kb_name = request.POST.get('kb_name')
+            
+            if not file_obj or not company_name or not kb_name:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'Missing file, company name, or KB name'
+                })
+            
+            # Ensure the file is a markdown or text file
+            file_extension = os.path.splitext(file_obj.name.lower())[1]
+            if file_extension not in ['.md', '.txt']:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'Only markdown (.md) or text (.txt) files are supported for ground truths'
+                })
+            
+            # Get directory for the ground truths
+            from .report_generator1 import get_kb_dir, ensure_dir_exists
+            kb_dir = get_kb_dir(company_name, kb_name)
+            gt_dir = os.path.join(kb_dir, "ground_truths")
+            ensure_dir_exists(gt_dir)
+            
+            # Save the file
+            file_path = os.path.join(gt_dir, file_obj.name)
+            with open(file_path, 'wb+') as destination:
+                for chunk in file_obj.chunks():
+                    destination.write(chunk)
+            
+            return JsonResponse({
+                'success': True,
+                'message': 'Ground truths file uploaded successfully',
+                'file_path': file_path
+            })
+            
+        except Exception as e:
+            logger.error(f"Error uploading ground truths: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return JsonResponse({
+                'success': False,
+                'message': f"Error: {str(e)}"
+            })
+    else:
+        return JsonResponse({
+            'success': False,
+            'message': 'Invalid request method'
+        }, status=405)
+
+
+    
+# Export the login and logout views explicitly
 __all__ = [
     'login_view', 
     'logout_view', 
     'index', 
     'chat', 
     'create_knowledge_base', 
-    'get_knowledge_bases', 
-    'generate_report', 
-    'download_report'
+    'get_knowledge_bases',
+    'add_company',
+    'generate_report',
+    'generate_qa_report',
+    'download_report',
+    'get_reports',
+    'get_report_content',
+    'upload_ground_truths',
+    'get_session_reports'
 ]
