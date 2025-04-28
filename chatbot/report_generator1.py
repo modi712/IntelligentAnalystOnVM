@@ -374,16 +374,7 @@ def generate_chat_response(query, company_name, kb_name):
         if not kb_name:
             return "Please select a knowledge base before asking questions."
         
-         # Convert kb_id to kb_name if an ID was passed
-        if kb_name and kb_name.isdigit():
-            try:
-                from chatbot.models import KnowledgeBase
-                kb_obj = KnowledgeBase.objects.get(id=int(kb_name))
-                kb_name = kb_obj.name
-                logger.info(f"Converted kb_id {kb_name} to name: {kb_obj.name}")
-            except Exception as e:
-                logger.error(f"Error converting kb_id to name: {e}")
-                return "There was an error with the knowledge base selection. Please try again."
+        
         
         # Check if KB name is None or empty
         if not kb_name:
@@ -393,84 +384,23 @@ def generate_chat_response(query, company_name, kb_name):
         if not company_name:
             return "Please select a company before asking questions."
         
-        # Check if knowledge base exists
-        kb_dir = get_kb_dir(company_name, kb_name)
-        persist_dir = os.path.join(kb_dir, "vector_store")
         
-        if not os.path.exists(persist_dir):
-            logger.warning(f"Vector store for {kb_name} does not exist")
-            return "I don't have any information about this topic. Please upload relevant documents first."
         
-        # Ensure LLM is initialized
-        if not llm:
-            logger.error("LLM not initialized for chat")
-            return "I'm unable to process your request right now. Please try again later."
         
         # Load vector store and create retriever
         try:
-            vectorstore = Chroma(
-                collection_name=kb_name,
-                embedding_function=embeddings,
-                persist_directory=persist_dir,
-            )
-            
-            retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+            retriever = get_retriever_for_kb(company_name, kb_name)
         except Exception as e:
             logger.error(f"Error loading vector store: {e}")
             return "I'm having trouble accessing the knowledge base. Please try again later."
         
-        # Get relevant documents with proper error handling
-        try:
-            retrieved_docs = retriever.invoke(query)
-        except Exception as e:
-            logger.error(f"Error retrieving documents: {e}")
-            return "I encountered an error while searching for information. Please try again later."
-        
-        if not retrieved_docs:
-            logger.warning(f"No relevant documents found for query: '{query}'")
-            return "I couldn't find specific information to answer your question. Could you rephrase or ask about a different topic?"
-        
-        # Combine document content for context with safety check
-        valid_contents = []
-        for doc in retrieved_docs:
-            if hasattr(doc, 'page_content') and doc.page_content is not None:
-                valid_contents.append(doc.page_content)
-        
-        if not valid_contents:
-            logger.warning("Retrieved documents had no valid content")
-            return "I found some information but couldn't process it correctly. Please try a different question."
-            
-        context = "\n\n".join(valid_contents)
-        
-        # Create prompt template
-        prompt = PromptTemplate(
-            template="""You are a professional business analyst assistant.
-            
-            Based on the following context information, provide a well-structured, professional response to the query.
-            Make your response comprehensive yet concise.
-            Format your response with bullet points where appropriate.
-            If you don't know the answer based on the context, say so clearly rather than making up information.
-            
-            Context: {context}
-            
-            Query: {query}
-            
-            Response:""",
-            input_variables=["context", "query"]
-        )
+       
         
         # Create and run chain with timeout handling
         try:
-            chain = LLMChain(llm=llm, prompt=prompt)
-            response = chain.invoke({"context": context, "query": query})
-            
-            if not response or 'text' not in response:
-                logger.error("Received empty or invalid response from LLM")
-                return "I'm sorry, but I couldn't generate a proper response. Please try again later."
-                
-            return response['text'].strip()
+            response = run_query(query, retriever)    
+            return response
         except Exception as chain_error:
-            logger.error(f"Error in LLM chain: {chain_error}")
             return "I encountered an error while processing your request. Please try again later."
         
     except Exception as e:
