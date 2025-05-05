@@ -523,7 +523,8 @@ def run_query_concise(query, retriever, max_length=None, analyst_answer_length=N
     # Ensure proper line breaks between bullet points
     text = text.replace('\n\n• ', '\n• ')
     
-    return text
+    # return text
+    return text, context
 
 
 
@@ -661,7 +662,8 @@ def generate_qa_report_from_kb(company_name, kb_name, retriever,ground_truths_pa
         )
         
         # Add report title
-        ws.merge_cells('A1:D1')
+        # ws.merge_cells('A1:D1')
+        ws.merge_cells('A1:E1')
         ws['A1'] = f"{company_name} - Question & Answer Analysis Report"
         ws['A1'].font = Font(bold=True, size=14)
         ws['A1'].alignment = Alignment(horizontal='center')
@@ -671,8 +673,9 @@ def generate_qa_report_from_kb(company_name, kb_name, retriever,ground_truths_pa
         ws['B3'] = "Question"
         ws['C3'] = "Analyst's Answer"
         ws['D3'] = "AI Agent Answer"
+        ws['E3'] = "Retrieved Context"
         
-        for cell in ['A3', 'B3', 'C3', 'D3']:
+        for cell in ['A3', 'B3', 'C3', 'D3', 'E3']:
             ws[cell].font = header_font
             ws[cell].fill = header_fill
             ws[cell].border = thin_border
@@ -682,19 +685,20 @@ def generate_qa_report_from_kb(company_name, kb_name, retriever,ground_truths_pa
         ws.column_dimensions['B'].width = 40
         ws.column_dimensions['C'].width = 40
         ws.column_dimensions['D'].width = 40
-        
+        ws.column_dimensions['E'].width = 40
+
         # Starting row for data
         row = 4
         
         # Iterate through categories and questions
         for category, questions in qa_data.items():
             # Add category row
-            ws.merge_cells(f'A{row}:D{row}')
+            ws.merge_cells(f'A{row}:E{row}')
             ws[f'A{row}'] = category
             ws[f'A{row}'].font = category_font
             ws[f'A{row}'].fill = category_fill
             ws[f'A{row}'].alignment = Alignment(horizontal='left')
-            for col in ['A', 'B', 'C', 'D']:
+            for col in ['A', 'B', 'C', 'D', 'E']:
                 ws[f'{col}{row}'].border = thin_border
             row += 1
             
@@ -708,7 +712,7 @@ def generate_qa_report_from_kb(company_name, kb_name, retriever,ground_truths_pa
                 analyst_answer_length = len(analyst_answer)
                 
                 # Get AI answer from the retriever and LLM with length guidance
-                ai_answer = run_query_concise(
+                ai_answer, retrieved_context = run_query_concise(
                     question, 
                     retriever, 
                     analyst_answer_length=analyst_answer_length
@@ -719,9 +723,10 @@ def generate_qa_report_from_kb(company_name, kb_name, retriever,ground_truths_pa
                 ws[f'B{row}'] = question
                 ws[f'C{row}'] = analyst_answer
                 ws[f'D{row}'] = ai_answer
+                ws[f'E{row}'] = retrieved_context
                 
                 # Apply borders and text wrapping
-                for col in ['A', 'B', 'C', 'D']:
+                for col in ['A', 'B', 'C', 'D', 'E']:
                     ws[f'{col}{row}'].border = thin_border
                     ws[f'{col}{row}'].alignment = Alignment(wrap_text=True, vertical='top')
                 
@@ -784,7 +789,7 @@ def get_retriever_for_kb(company_name, kb_name):
         if len(sanitized_kb_name) < 3:
             sanitized_kb_name = sanitized_kb_name + '_db'
         sanitized_kb_name = sanitized_kb_name[:63]
-        
+
         # Path to the vector store
         persist_directory = f"media/vector_stores/{company_name}/{sanitized_kb_name}"
         
