@@ -235,10 +235,12 @@ def generate_excel_report(company_name, kb_name, retriever, prompt_type="prompt_
             
             row += 1
     
+    
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     # Save the workbook
     excel_dir = os.path.join(get_kb_dir(company_name, kb_name), "excel")
     ensure_dir_exists(excel_dir)
-    excel_path = os.path.join(excel_dir, f"{company_name}_{kb_name}_analysis.xlsx")
+    excel_path = os.path.join(excel_dir, f"{company_name}_{kb_name}_analysis_{timestamp}.xlsx")
     wb.save(excel_path)
     
     logger.info(f"Excel report saved to {excel_path}")
