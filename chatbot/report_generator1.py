@@ -35,6 +35,46 @@ VECTOR_STORES_DIR = os.path.join(MEDIA_ROOT, "vector_stores")
 embeddings = SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
 text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
 
+PROMPT_1 = """You are a professional business analyst creating a report.
+Based on the following context information, provide a well-structured, professional response to the query.
+Make your response comprehensive yet concise, suitable for a business presentation slide.
+
+Important formatting requirements:
+1. Start with a brief summary (1-2 sentences)
+2. Use bullet points for key information (• format)
+3. If providing data or statistics, present them clearly
+4. For any multi-part answers, use numbered lists
+5. Bold important terms or figures using markdown (**term**)
+6. Use short paragraphs with clear spacing between points
+7. Avoid long, dense paragraphs of text
+{length_guidance}
+
+Context: {context}
+Query: {query}
+Response:"""
+
+
+PROMPT_2 = """You are a financial analyst with about 3 years of experience. Your job is to analyse companies and their busineses. All your responses should be aimed at a senior person who wants to get a well-structured, professional response to the query.
+You are required to focus on the following key aspects:
+- Develop an independent view
+- Differentiate between fact and opinion. Triangulate based on all the information provided to you
+- Focus a lot on actual facts rather than on just a story being told (by either the company or by analysts)
+- Think of both the pros and cons and then come to a conclusion on what seems plausible
+Make your response comprehensive yet concise, suitable for a business presentation slide.
+
+Important formatting requirements:
+1. Start with a brief summary (1-2 sentences)
+2. Use bullet points for key information (• format)
+3. If providing data or statistics, present them clearly
+4. For any multi-part answers, use numbered lists
+5. Bold important terms or figures using markdown (**term**)
+6. Use short paragraphs with clear spacing between points
+7. Avoid long, dense paragraphs of text
+{length_guidance}
+
+Context: {context}
+Query: {query}
+Response:"""
 
 # Create directory structure functions
 def ensure_dir_exists(path):
@@ -48,7 +88,8 @@ def ensure_dir_exists(path):
 try:
     from .api_key import GROQ_API_KEY  # Import API key
     from langchain_groq import ChatGroq as Groq
-    llm = Groq(api_key='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', model_name="llama-3.3-70b-versatile")
+    # llm = Groq(api_key='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', model_name="llama-3.3-70b-versatile")
+    llm = Groq(api_key='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', model_name="mistral-saba-24b")
 except (ImportError, Exception) as e:
     logger.error(f"Failed to initialize LLM: {e}")
     llm = None
@@ -66,7 +107,7 @@ def get_kb_dir(company_name, kb_name):
 
 
 
-def generate_excel_report(company_name, kb_name, retriever):
+def generate_excel_report(company_name, kb_name, retriever, prompt_type="prompt_1"):
     """Generate an Excel report with answers to predefined questions"""
     logger.info(f"Generating Excel report for {company_name}/{kb_name}")
     
@@ -174,7 +215,7 @@ def generate_excel_report(company_name, kb_name, retriever):
             query = f"For {company_name}, {question}. Please provide a concise answer based on the available information."
             
             # Get answer from the retriever and LLM
-            answer = run_query(query, retriever)
+            answer = run_query(query, retriever, prompt_type=prompt_type)
             
             # Add to worksheet
             ws[f'A{row}'] = ""  # No category in question rows
@@ -205,7 +246,7 @@ def generate_excel_report(company_name, kb_name, retriever):
     return excel_path
 
 
-def generate_excel_report_from_kb(company_name, kb_name):
+def generate_excel_report_from_kb(company_name, kb_name, prompt_type="prompt_1"):
     """Generate an Excel report from an existing knowledge base"""
     try:
         logger.info(f"Starting generate_excel_report_from_kb for {company_name}/{kb_name}")
@@ -226,7 +267,7 @@ def generate_excel_report_from_kb(company_name, kb_name):
         logger.info(f"Successfully got retriever, now generating Excel report...")
         
         # Generate the Excel report
-        excel_path = generate_excel_report(company_name, kb_name, retriever)
+        excel_path = generate_excel_report(company_name, kb_name, retriever, prompt_type=prompt_type)
         
         if not excel_path:
             logger.error("generate_excel_report returned None")
@@ -409,7 +450,7 @@ def generate_chat_response(query, company_name, kb_name):
         logger.error(f"Traceback: {traceback.format_exc()}")
         return "I encountered an error while processing your request. Please try again later."
 
-def run_query(query, retriever):
+def run_query(query, retriever, prompt_type="prompt_1"):
     """Run a query against the retriever and process with LLM"""
     if not llm:
         return "LLM not initialized. Cannot generate report content."
@@ -418,33 +459,53 @@ def run_query(query, retriever):
     retrieved_docs = retriever.invoke(query)
     context = "\n\n".join([doc.page_content for doc in retrieved_docs])
     
-    # Create prompt template
+    selected_template_str = ""
+    input_vars = ["context", "query"]
+    prompt_data = {"context": context, "query": query}
+
+    if prompt_type == "prompt_2":
+        selected_template_str = PROMPT_2
+        input_vars.append("length_guidance") # Add to input_vars
+        prompt_data["length_guidance"] = "" # Pass empty string for this prompt type in run_query
+        logger.info("Using Prompt 2 for run_query")
+    else: # Default to prompt_1
+        selected_template_str = PROMPT_1
+        input_vars.append("length_guidance") # Add to input_vars
+        prompt_data["length_guidance"] = ""
+        logger.info("Using Prompt 1 for run_query")
+        # input_vars is already ["context", "query"]
+
     prompt = PromptTemplate(
-        template="""You are a professional business analyst creating a report.
-        
-        Based on the following context information, provide a well-structured, professional response to the query.
-        Make your response comprehensive yet concise, suitable for a business presentation slide.
-        
-        Important formatting requirements:
-        1. Start with a brief summary (1-2 sentences)
-        2. Use bullet points for key information (• format)
-        3. If providing data or statistics, present them clearly
-        4. For any multi-part answers, use numbered lists
-        5. Bold important terms or figures using markdown (**term**)
-        6. Use short paragraphs with clear spacing between points
-        7. Avoid long, dense paragraphs of text
-        
-        Context: {context}
-        
-        Query: {query}
-        
-        Response:""",
-        input_variables=["context", "query"]
+        template=selected_template_str,
+        input_variables=input_vars
     )
+    # # Create prompt template
+    # prompt = PromptTemplate(
+    #     template="""You are a professional business analyst creating a report.
+        
+    #     Based on the following context information, provide a well-structured, professional response to the query.
+    #     Make your response comprehensive yet concise, suitable for a business presentation slide.
+        
+    #     Important formatting requirements:
+    #     1. Start with a brief summary (1-2 sentences)
+    #     2. Use bullet points for key information (• format)
+    #     3. If providing data or statistics, present them clearly
+    #     4. For any multi-part answers, use numbered lists
+    #     5. Bold important terms or figures using markdown (**term**)
+    #     6. Use short paragraphs with clear spacing between points
+    #     7. Avoid long, dense paragraphs of text
+        
+    #     Context: {context}
+        
+    #     Query: {query}
+        
+    #     Response:""",
+    #     input_variables=["context", "query"]
+    # )
     
     # Create and run chain
     chain = LLMChain(llm=llm, prompt=prompt)
-    response = chain.invoke({"context": context, "query": query})
+    response = chain.invoke(prompt_data)
 
     # Process response for better formatting in Excel
     text = response['text'].strip()
@@ -460,7 +521,7 @@ def run_query(query, retriever):
     return text
 
 
-def run_query_concise(query, retriever, max_length=None, analyst_answer_length=None):
+def run_query_concise(query, retriever, prompt_type="prompt_1", max_length=None, analyst_answer_length=None):
     """
     Run a query against the retriever and process with LLM to produce concise answers
     similar in length to analyst answers
@@ -473,44 +534,56 @@ def run_query_concise(query, retriever, max_length=None, analyst_answer_length=N
     context = "\n\n".join([doc.page_content for doc in retrieved_docs])
     
     # Create length guidance based on analyst answer if provided
-    length_guidance = ""
+    current_length_guidance = ""
     if analyst_answer_length:
-        length_guidance = f"Your answer should be approximately {analyst_answer_length} characters long."
+        current_length_guidance = f"Your answer should be approximately {analyst_answer_length} characters long."
     elif max_length:
-        length_guidance = f"Your answer should not exceed {max_length} characters."
+        current_length_guidance = f"Your answer should not exceed {max_length} characters."
     else:
-        length_guidance = "Keep your answer brief and concise."
+        current_length_guidance = "Keep your answer brief and concise."
     
-    # Create prompt template
+    selected_template_str = ""
+    # All prompts for run_query_concise will use context, query, and length_guidance
+    input_vars = ["context", "query", "length_guidance"] 
+    prompt_data = {"context": context, "query": query, "length_guidance": current_length_guidance}
+
+    # # Create prompt template
+    # prompt = PromptTemplate(
+    #     template="""You are a professional business analyst creating a concise report.
+        
+    #     Based on the following context information, provide a brief, well-structured, professional response to the query.
+    #     Make your response concise and to the point - include only the most relevant information.
+        
+    #     Important formatting and length requirements:
+    #     1. {length_guidance}
+    #     2. Use bullet points for listing key information (• format)
+    #     3. Bold important terms or figures using markdown (**term**)
+    #     4. Focus on the most important facts or insights only
+    #     5. Avoid unnecessary context or background information
+    #     6. Match the style and tone of an expert analyst's answer
+        
+    #     Context: {context}
+        
+    #     Query: {query}
+        
+    #     Response:""",
+    #     input_variables=["context", "query", "length_guidance"]
+    # )
+    if prompt_type == "prompt_2":
+        selected_template_str = PROMPT_2
+        logger.info("Using Prompt 2 for run_query_concise")
+    else: # Default to standard_qa_concise
+        selected_template_str = PROMPT_1
+        logger.info("Using Prompt 1 for run_query_concise")
+        
     prompt = PromptTemplate(
-        template="""You are a professional business analyst creating a concise report.
-        
-        Based on the following context information, provide a brief, well-structured, professional response to the query.
-        Make your response concise and to the point - include only the most relevant information.
-        
-        Important formatting and length requirements:
-        1. {length_guidance}
-        2. Use bullet points for listing key information (• format)
-        3. Bold important terms or figures using markdown (**term**)
-        4. Focus on the most important facts or insights only
-        5. Avoid unnecessary context or background information
-        6. Match the style and tone of an expert analyst's answer
-        
-        Context: {context}
-        
-        Query: {query}
-        
-        Response:""",
-        input_variables=["context", "query", "length_guidance"]
+        template=selected_template_str,
+        input_variables=input_vars
     )
-    
+
     # Create and run chain
     chain = LLMChain(llm=llm, prompt=prompt)
-    response = chain.invoke({
-        "context": context, 
-        "query": query,
-        "length_guidance": length_guidance
-    })
+    response = chain.invoke(prompt_data)
 
     # Process response for better formatting in Excel
     text = response['text'].strip()
@@ -535,7 +608,7 @@ def get_excel_dir(company_name, kb_name):
     return ensure_dir_exists(excel_path)
 
 
-def generate_qa_report_from_kb(company_name, kb_name, retriever,ground_truths_path=None):
+def generate_qa_report_from_kb(company_name, kb_name, retriever,ground_truths_path=None, prompt_type="prompt_1"):
     """
     Generate a Q&A report for the specified company and knowledge base
 
@@ -663,7 +736,7 @@ def generate_qa_report_from_kb(company_name, kb_name, retriever,ground_truths_pa
         
         # Add report title
         # ws.merge_cells('A1:D1')
-        ws.merge_cells('A1:E1')
+        ws.merge_cells('A1:H1')
         ws['A1'] = f"{company_name} - Question & Answer Analysis Report"
         ws['A1'].font = Font(bold=True, size=14)
         ws['A1'].alignment = Alignment(horizontal='center')
@@ -693,7 +766,7 @@ def generate_qa_report_from_kb(company_name, kb_name, retriever,ground_truths_pa
         # Iterate through categories and questions
         for category, questions in qa_data.items():
             # Add category row
-            ws.merge_cells(f'A{row}:E{row}')
+            ws.merge_cells(f'A{row}:H{row}')
             ws[f'A{row}'] = category
             ws[f'A{row}'].font = category_font
             ws[f'A{row}'].fill = category_fill
@@ -715,7 +788,8 @@ def generate_qa_report_from_kb(company_name, kb_name, retriever,ground_truths_pa
                 ai_answer, retrieved_context = run_query_concise(
                     question, 
                     retriever, 
-                    analyst_answer_length=analyst_answer_length
+                    analyst_answer_length=analyst_answer_length,
+                    prompt_type=prompt_type
                 )
                 
                 # Add to worksheet
@@ -749,7 +823,7 @@ def generate_qa_report_from_kb(company_name, kb_name, retriever,ground_truths_pa
                 excel_path, 
                 ground_truths_path,
                 company_name,
-                kb_name
+                kb_name,
             )
             if evaluated_path:
                 logger.info(f"RAGAS evaluation completed, returning evaluated report path")
@@ -846,6 +920,7 @@ def evaluate_qa_report_with_ragas(excel_path, ground_truths_path, company_name, 
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         import re
         import ragas
+        from ragas import evaluate
         logger.info(f"RAGAS version: {ragas.__version__}")
         logger.info(f"Starting RAGAS evaluation for report: {excel_path}")
 
@@ -887,13 +962,15 @@ def evaluate_qa_report_with_ragas(excel_path, ground_truths_path, company_name, 
             # Import RAGAS dependencies
             from ragas.llms import LangchainLLMWrapper
             from ragas.embeddings import LangchainEmbeddingsWrapper
+            from ragas.dataset_schema import SingleTurnSample 
             from ragas.metrics import (
-                # LLMContextPrecisionWithReference,
+                LLMContextPrecisionWithReference,
                 # LLMContextRecall,
                 # ContextEntityRecall,
                 # NoiseSensitivity,
-                # ResponseRelevancy,
-                Faithfulness
+                answer_relevancy,
+                Faithfulness,
+                answer_correctness
             )
             from langchain_core.documents import Document
             
@@ -906,21 +983,21 @@ def evaluate_qa_report_with_ragas(excel_path, ground_truths_path, company_name, 
             # Define metrics with proper wrappers
             metrics = {
                 'E': ('Faithfulness', Faithfulness(llm=ragas_llm)),
-                # 'F': ('Response Relevancy', ResponseRelevancy(llm=ragas_llm, embeddings=ragas_embeddings)),
-                # 'G': ('Context Precision', LLMContextPrecisionWithReference(llm=ragas_llm)),
-                # 'H': ('Context Recall', LLMContextRecall(llm=ragas_llm)),
+                'F': ('Response Relevancy', answer_relevancy),
+                'G': ('Context Precision', LLMContextPrecisionWithReference(llm=ragas_llm)),
+                'H': ('Factual Correctness', answer_correctness)                # 'H': ('Context Recall', LLMContextRecall(llm=ragas_llm)),
                 # 'I': ('Entity Recall', ContextEntityRecall(llm=ragas_llm)),
                 # 'J': ('Noise Sensitivity', NoiseSensitivity(llm=ragas_llm))
             }
             
             logger.info("Successfully initialized RAGAS metrics")
 
-            try:
-                from ragas.metrics import answer_relevancy
-                metrics['F'] = ('Relevancy', answer_relevancy)
-                logger.info("✓ Added Relevancy metric")
-            except ImportError:
-                logger.warning("Could not import answer_relevancy metric")
+            # try:
+            #     from ragas.metrics import answer_relevancy
+            #     metrics['F'] = ('Relevancy', answer_relevancy)
+            #     logger.info("✓ Added Relevancy metric")
+            # except ImportError:
+            #     logger.warning("Could not import answer_relevancy metric")
             
         except ImportError as ie:
             logger.error(f"RAGAS library import error: {ie}")
@@ -1066,107 +1143,217 @@ def evaluate_qa_report_with_ragas(excel_path, ground_truths_path, company_name, 
         row = 5  # Starting from the first question (after headers and category)
         metrics_by_category = {col: {} for col in metrics.keys()}
         
-        # Define a function to evaluate all metrics for a single QA pair
-        def evaluate_metrics(question, answer, contexts, ground_truth, metrics_dict):
-            results = {}
+        # # Define a function to evaluate all metrics for a single QA pair
+        # def evaluate_metrics(question, answer, contexts, ground_truth, metrics_dict):
+        #     results = {}
             
-            logger.info(f"Evaluating: '{question[:50]}...'")
-            logger.info(f"  Answer: '{answer[:50]}...'")
-            logger.info(f"  Ground truth: '{ground_truth[:50]}...'")
-            logger.info(f"  Contexts: {len(contexts)} documents")
+        #     logger.info(f"Evaluating: '{question[:50]}...'")
+        #     logger.info(f"  Answer: '{answer[:50]}...'")
+        #     logger.info(f"  Ground truth: '{ground_truth[:50]}...'")
+        #     logger.info(f"  Contexts: {len(contexts)} documents")
             
-            # try:
-            #     # Try different import paths based on RAGAS version
-            #     try:
-            #         from ragas.single_turn import SingleTurnSample
-            #         logger.info("Using ragas.single_turn.SingleTurnSample")
-            #     except ImportError:
-            #         try:
-            #             # For older versions
-            #             from ragas.evaluation import SingleTurnSample
-            #             logger.info("Using ragas.evaluation.SingleTurnSample")
-            #         except ImportError:
-            #             # For newer versions
-            #             from ragas import evaluate_ragas_sample
-            #             logger.info("Using ragas.evaluate_ragas_sample approach")
+        #     # try:
+        #     #     # Try different import paths based on RAGAS version
+        #     #     try:
+        #     #         from ragas.single_turn import SingleTurnSample
+        #     #         logger.info("Using ragas.single_turn.SingleTurnSample")
+        #     #     except ImportError:
+        #     #         try:
+        #     #             # For older versions
+        #     #             from ragas.evaluation import SingleTurnSample
+        #     #             logger.info("Using ragas.evaluation.SingleTurnSample")
+        #     #         except ImportError:
+        #     #             # For newer versions
+        #     #             from ragas import evaluate_ragas_sample
+        #     #             logger.info("Using ragas.evaluate_ragas_sample approach")
                         
-            #             # In this case, we'll use evaluate_ragas_sample directly instead of SingleTurnSample
-            #             for col, (metric_name, metric) in metrics_dict.items():
-            #                 try:
-            #                     # Create a dict for evaluate_ragas_sample
-            #                     sample = {
-            #                         "question": question,
-            #                         "answer": answer,
-            #                         "contexts": [doc.page_content for doc in contexts],
-            #                         "ground_truth": ground_truth
-            #                     }
-            #                     score = metric.score(sample)
-            #                     logger.info(f"{metric_name} score: {score}")
-            #                     results[col] = score
-            #                 except Exception as e:
-            #                     logger.error(f"Error calculating {metric_name}: {e}")
-            #                     logger.error(traceback.format_exc())
-            #                     results[col] = None
-            #             return results
+        #     #             # In this case, we'll use evaluate_ragas_sample directly instead of SingleTurnSample
+        #     #             for col, (metric_name, metric) in metrics_dict.items():
+        #     #                 try:
+        #     #                     # Create a dict for evaluate_ragas_sample
+        #     #                     sample = {
+        #     #                         "question": question,
+        #     #                         "answer": answer,
+        #     #                         "contexts": [doc.page_content for doc in contexts],
+        #     #                         "ground_truth": ground_truth
+        #     #                     }
+        #     #                     score = metric.score(sample)
+        #     #                     logger.info(f"{metric_name} score: {score}")
+        #     #                     results[col] = score
+        #     #                 except Exception as e:
+        #     #                     logger.error(f"Error calculating {metric_name}: {e}")
+        #     #                     logger.error(traceback.format_exc())
+        #     #                     results[col] = None
+        #     #             return results
                 
-            #     # Create RAGAS sample the standard way if imports worked
-            #     sample = SingleTurnSample(
-            #         question=question,
-            #         answer=answer,
-            #         contexts=contexts,
-            #         ground_truth=ground_truth
-            #     )
+        #     #     # Create RAGAS sample the standard way if imports worked
+        #     #     sample = SingleTurnSample(
+        #     #         question=question,
+        #     #         answer=answer,
+        #     #         contexts=contexts,
+        #     #         ground_truth=ground_truth
+        #     #     )
                 
-            #     # Evaluate each metric
-            #     for col, (metric_name, metric) in metrics_dict.items():
-            #         try:
-            #             logger.info(f"Calculating {metric_name}...")
-            #             score = metric.single_turn_score(sample)
-            #             logger.info(f"{metric_name} score: {score}")
-            #             results[col] = score
-            #         except Exception as e:
-            #             logger.error(f"Error calculating {metric_name}: {e}")
-            #             logger.error(traceback.format_exc())
-            #             results[col] = None
-            # except Exception as e:
-            #     logger.error(f"Error evaluating metrics: {e}")
-            #     logger.error(traceback.format_exc())
+        #     #     # Evaluate each metric
+        #     #     for col, (metric_name, metric) in metrics_dict.items():
+        #     #         try:
+        #     #             logger.info(f"Calculating {metric_name}...")
+        #     #             score = metric.single_turn_score(sample)
+        #     #             logger.info(f"{metric_name} score: {score}")
+        #     #             results[col] = score
+        #     #         except Exception as e:
+        #     #             logger.error(f"Error calculating {metric_name}: {e}")
+        #     #             logger.error(traceback.format_exc())
+        #     #             results[col] = None
+        #     # except Exception as e:
+        #     #     logger.error(f"Error evaluating metrics: {e}")
+        #     #     logger.error(traceback.format_exc())
             
-            # return results        
+        #     # return results        
 
-            for col, (metric_name, metric_func) in metrics_dict.items():
+        #     for col, (metric_name, metric_func) in metrics_dict.items():
+        #         try:
+        #             logger.info(f"  Calculating {metric_name}...")
+                    
+        #             # For faithfulness metric
+        #             if metric_name == 'Faithfulness':
+        #                 # sample = SingleTurnSample(
+        #                 #     user_input=question,
+        #                 #     response=answer,
+        #                 #     retrieved_contexts=[doc.page_content for doc in contexts]
+        #                 # )
+        #                 # value = metric_func.single_turn_ascore(sample)
+        #                 # print(value)
+        #                 # score_df = metric_func.score(
+        #                 #     question=[question],
+        #                 #     answer=[answer],
+        #                 #     contexts=[[doc for doc in contexts]]
+        #                 # )
+        #                 # value = score_df['faithfulness'].iloc[0]
+                        
+        #             # For relevancy metric
+        #             elif metric_name == 'Relevancy':
+        #                 print(-1)
+        #                 # result = evaluate(
+        #                 #     dataset=Dataset.from_dict({
+        #                 #         "question": [question],
+        #                 #         "answer": [answer],
+        #                 #         "contexts": [[doc.page_content for doc in contexts]],
+        #                 #         "ground_truth": [ground_truth]
+        #                 #     }),
+        #                 #     metrics=[metric_func]
+        #                 # )
+        #                 # value = result[metric_name][0]
+        #             else:
+        #                 logger.warning(f"Unsupported metric: {metric_name}")
+        #                 continue
+                        
+        #             logger.info(f"  ✓ {metric_name} score: {value:.4f}")
+        #             results[col] = value
+                    
+        #         except Exception as e:
+        #             logger.error(f"  ✗ Error calculating {metric_name}: {e}")
+        #             logger.error(traceback.format_exc())
+        #             results[col] = None
+                    
+        #     return results
+
+        def evaluate_metrics(question, answer, contexts, ground_truth, metrics_dict, ragas_llm_local, ragas_embeddings_local):
+            """
+            Evaluates a single QA pair against a dictionary of RAGAS metrics.
+
+            Args:
+                question (str): The question.
+                answer (str): The AI-generated answer.
+                contexts (list): A list of langchain_core.documents.base.Document objects.
+                ground_truth (str): The reference/analyst answer.
+                metrics_dict (dict): A dictionary where keys are Excel column letters and
+                                    values are tuples of (display_name, metric_object).
+                ragas_llm_local: The LangchainLLMWrapper instance for RAGAS.
+                ragas_embeddings_local: The LangchainEmbeddingsWrapper instance for RAGAS.
+
+            Returns:
+                dict: A dictionary mapping Excel column letters to calculated scores.
+            """
+            results_scores = {}
+            
+            # Log input types for sanity check (can be removed after confirming)
+            logger.debug(f"evaluate_metrics - question type: {type(question)}")
+            logger.debug(f"evaluate_metrics - answer type: {type(answer)}")
+            logger.debug(f"evaluate_metrics - contexts type: {type(contexts)}")
+            if contexts:
+                logger.debug(f"evaluate_metrics - contexts[0] type: {type(contexts[0])}")
+            logger.debug(f"evaluate_metrics - ground_truth type: {type(ground_truth)}")
+
+            for col_letter, (metric_display_name, metric_object) in metrics_dict.items():
                 try:
-                    logger.info(f"  Calculating {metric_name}...")
+                    logger.info(f"  Calculating {metric_display_name} for question: '{question[:50]}...'")
+
+                    # Prepare the data in the format RAGAS evaluate expects for a single item.
+                    # 'question', 'answer', 'ground_truth' are lists of strings.
+                    # 'contexts' is a list of lists of strings.
+                    current_eval_data = {
+                        "question": [question],
+                        "answer": [answer],
+                        "contexts": [[doc.page_content for doc in contexts if hasattr(doc, 'page_content') and doc.page_content]],
+                        "ground_truth": [ground_truth]
+                    }
                     
-                    # For faithfulness metric
-                    if metric_name == 'Faithfulness':
-                        score_df = metric_func.score(
-                            question=[question],
-                            answer=[answer],
-                            contexts=[[doc for doc in contexts]]
-                        )
-                        value = score_df['faithfulness'].iloc[0]
-                        
-                    # For relevancy metric
-                    elif metric_name == 'Relevancy':
-                        score_df = metric_func.score(
-                            question=[question],
-                            answer=[answer]
-                        )
-                        value = score_df['answer_relevancy'].iloc[0]
+                    # Ensure contexts list is not empty if there are no valid page_contents
+                    if not current_eval_data["contexts"][0] and contexts: # if original contexts list was not empty but produced no content
+                        logger.warning(f"  Context list became empty after extracting page_content for {metric_display_name}. Using empty list for contexts.")
+                        current_eval_data["contexts"] = [[]] # RAGAS expects list of lists, even if inner list is empty
+                    elif not contexts: # If original contexts list was empty
+                        current_eval_data["contexts"] = [[]]
+
+
+                    # Create a Dataset object for the current sample
+                    # This import should ideally be at the top of the file
+                    from datasets import Dataset
+                    current_dataset = Dataset.from_dict(current_eval_data)
+
+                    # Evaluate using the specific metric object
+                    evaluation_result_obj = evaluate(
+                        dataset=current_dataset,
+                        metrics=[metric_object],  # Pass the specific metric instance
+                        llm=ragas_llm_local,        # Pass the LLM wrapper
+                        embeddings=ragas_embeddings_local, # Pass the embeddings wrapper
+                        raise_exceptions=True # Set to True to catch specific errors during metric calculation
+                    )
+                    
+                    # The result of evaluate is an EvaluationResult object.
+                    # It behaves like a dictionary where keys are metric names (metric_object.name).
+                    metric_internal_name = metric_object.name 
+                    
+                    # Access the score
+                    # For a single-row dataset and single metric, the value should be a float.
+                    score_value = evaluation_result_obj[metric_internal_name]
+
+                    # RAGAS sometimes returns the score within a list if it processes it as a batch of 1.
+                    if isinstance(score_value, list) and len(score_value) == 1:
+                        final_score = float(score_value[0])
+                    elif isinstance(score_value, (float, int)):
+                        final_score = float(score_value)
                     else:
-                        logger.warning(f"Unsupported metric: {metric_name}")
-                        continue
+                        logger.error(f"  Unexpected score format for {metric_display_name}: {score_value} (type: {type(score_value)})")
+                        final_score = None # Or handle as an error, e.g., by setting a specific error string
+
+                    if final_score is not None:
+                        logger.info(f"  ✓ {metric_display_name} score: {final_score:.4f}")
+                        results_scores[col_letter] = final_score
+                    else:
+                        # This path is taken if final_score couldn't be determined
+                        logger.warning(f"  Score for {metric_display_name} is None or in an unexpected format.")
+                        results_scores[col_letter] = "Err" 
                         
-                    logger.info(f"  ✓ {metric_name} score: {value:.4f}")
-                    results[col] = value
-                    
                 except Exception as e:
-                    logger.error(f"  ✗ Error calculating {metric_name}: {e}")
+                    logger.error(f"  ✗ Error calculating {metric_display_name} for question '{question[:50]}...': {e}")
+                    import traceback
                     logger.error(traceback.format_exc())
-                    results[col] = None
+                    results_scores[col_letter] = "Error" # Mark as Error in Excel
                     
-            return results
+            return results_scores
+
         while row <= ws.max_row:
             # Skip if row is a category header (merged cells)
             try:
@@ -1300,12 +1487,21 @@ def evaluate_qa_report_with_ragas(excel_path, ground_truths_path, company_name, 
                     
                     logger.info(f"Evaluating question with {len(eval_contexts)} context documents")
                     # Get all scores at once
+                    # metric_results = evaluate_metrics(
+                    #     question=question_cell_value,
+                    #     answer=ai_answer,
+                    #     contexts=matching_gt["context_docs"],
+                    #     ground_truth=matching_gt["ground_truth"],
+                    #     metrics_dict=metrics
+                    # )
                     metric_results = evaluate_metrics(
-                        question=question_cell_value,
-                        answer=ai_answer,
-                        contexts=matching_gt["context_docs"],
-                        ground_truth=matching_gt["ground_truth"],
-                        metrics_dict=metrics
+                        question=question_cell_value,       # This is eval_question
+                        answer=ai_answer,                   # This is eval_answer
+                        contexts=matching_gt["context_docs"], # This is eval_contexts
+                        ground_truth=matching_gt["ground_truth"], # This is eval_ground_truth
+                        metrics_dict=metrics,
+                        ragas_llm_local=ragas_llm,          # Pass the wrapper
+                        ragas_embeddings_local=ragas_embeddings # Pass the wrapper
                     )
                     # Add scores to Excel and tracking
                     for col, score in metric_results.items():
@@ -1418,4 +1614,3 @@ def evaluate_qa_report_with_ragas(excel_path, ground_truths_path, company_name, 
         logger.error(traceback.format_exc())
         return None
     
-
