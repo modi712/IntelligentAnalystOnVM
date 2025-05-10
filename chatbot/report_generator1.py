@@ -89,7 +89,7 @@ try:
     from .api_key import GROQ_API_KEY  # Import API key
     from langchain_groq import ChatGroq as Groq
     # llm = Groq(api_key='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', model_name="llama-3.3-70b-versatile")
-    llm = Groq(api_key='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', model_name="mistral-saba-24b")
+    llm = Groq(api_key='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', model_name="llama-3.3-70b-versatile")
 except (ImportError, Exception) as e:
     logger.error(f"Failed to initialize LLM: {e}")
     llm = None
@@ -153,44 +153,43 @@ def generate_excel_report(company_name, kb_name, retriever, prompt_type="prompt_
     # Define questions by category
     questions = {
         "Business Model": [
-            "Size of opportunity (by revenue)",
-            "Size of opportunity (by profits)",
-            "Asset light/heavy (Capex/Sales)"
+            "What is the TAM for each of the key revenue segments currently. Give me an INR number for each segment. take the above and compute total tam. Then compare with  current revenues for each segment and total.",
+            "for the above, could you calculate the profit opportunity be each segment in INR currently and in the future",
+            "what is the average capex for the company in INR. what are the average sales of the company in INR. calculate capex/sales"
         ],
         "Product and Technology": [
-            "Prototype ready",
-            "Quality of prototype",
-            "IP in the technology high / or other IPs",
-            "Is there very high R&D in this activity"
+            "what is the key IP in the business - is it technology, logistics, operations or something else",
+            "what is the average R&D expediture. What is the average revenues over the same period. Calculate the ratio of R&D to Revenues"
         ],
         "Customer/Value Proposition": [
-            "Value they bring to the customer",
-            "Has the business got a strong moat?",
-            "Is the business differentiated relative to peers?"
+            "Profile their typical customer. What value do they provide to the end customerr",
+            "what is the competition to the company. How does the company differentiate vs them. Do they have a strong moat (rank 1-10, 10 being the strongest)"
         ],
         "Life Cycle/Competitive Analysis": [
-            "Is it early stage of life cycle",
-            "Is there high competitive intensity now?",
-            "Is there high competitive intensity likely in 5 years time"
+            "where in the company lifecycle does the company stand",
+            "which industry is the company operating. Is there lot of competition",
+            "which industry is the company operating.. will the competition for the company increase or decrease in the coming 5 years"
         ],
         "Market View": [
-            "Are street analysts very positive?",
-            "Is it backed by top investor/group? (strategic side)"
+            "are street analysts positive or negative on the company. What is their rationale",
+            "who are the key shareholders. How much do promotors/founders own; how much is owned by institutional shareholders. Who are the key institutional shareholders"
         ],
         "Financials": [
-            "Is the company demonstrating very fast revenue growth? (>=30% 3yr-CAGR)",
-            "Is the path to profitability very clear?",
-            "Does the unit economics make sense?"
+            "is the company having fast revenue growth (greater than 20% per year over the past 2-3 years)",
+            " Is the company making profits? If yes, are these profits growing. If not, is there a clear path to profitability"
         ],
         "Management Quality": [
-            "Does management have high quality in expertise?",
-            "Does management appear honest/trustworthy/Ethical?"
+            "who are the key maangement personnel. rate them for industry expertise",
+            "who is the founder. Does he appear honest, trustworthy and ethical"
         ],
         "Regulatory Risk": [
-            "Governmental intervention: positive or negative?"
+            "Is there risk of governmental intervention"
         ],
         "Promotor Quality": [
-            "SRT framework (Anuj)"
+            "who is the founder. Does he appear honest, trustworthy and ethical"
+        ],
+        "Key Risks": [
+            "what are the key risks in the industry"
         ]
     }
     

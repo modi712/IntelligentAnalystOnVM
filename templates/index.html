@@ -787,7 +787,7 @@
                                                     questionRow.innerHTML = `
                                                         <td class="px-6 py-4 text-sm text-gray-500">${category}</td>
                                                         <td class="px-6 py-4 text-sm text-gray-900">${item.question}</td>
-                                                        <td class="px-6 py-4 text-sm text-gray-600">${item.answer || 'N/A'}</td>
+                                                        <td class="px-6 py-4 text-sm text-gray-600">${(item.answer).replace(/#/g, '') || 'N/A'}</td>
                                                     `;
                                                 }
                                                 reportContentBody.appendChild(questionRow);
