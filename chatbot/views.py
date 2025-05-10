@@ -256,7 +256,8 @@ def generate_report(request):
             company_name = data.get('company')
             kb_name = data.get('kb_name')
             report_type = data.get('report_type', 'excel')  
-            
+            prompt_type = data.get('prompt_type')  # Default to 'prompt_1' if not provided
+
             # Validate input
             if not company_name or not kb_name:
                 return JsonResponse({
@@ -272,8 +273,10 @@ def generate_report(request):
             
             # Generate the requested report type
             if report_type == 'excel':
-                logger.info(f"Generating Excel report for {company_name}/{kb_name}")
-                report_path = generate_excel_report_from_kb(company_name, kb_name)
+                logger.info(f"Generating Excel report for {company_name}/{kb_name} using {prompt_type}")
+                ui_prompt_selection = data.get('prompt_type') 
+                backend_prompt_type = "prompt_2" if ui_prompt_selection == "prompt_2" else "prompt_1"
+                report_path = generate_excel_report_from_kb(company_name, kb_name, prompt_type=backend_prompt_type)
                 logger.info(f"Report path: {report_path}")
                 
                 if report_path:
@@ -292,6 +295,7 @@ def generate_report(request):
                         'company': company_name,
                         'kb_name': kb_name,
                         'report_type': report_type,
+                        'prompt_type': prompt_type,
                         'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                         'report_path': report_path
                     })
@@ -306,7 +310,8 @@ def generate_report(request):
                         company=company_name,
                         kb_name=kb_name,
                         report_path=report_path,
-                        report_type=report_type
+                        report_type=report_type,
+                        prompt_type=prompt_type
                     )
                 else:
                     logger.error(f"Failed to generate Excel report for {company_name}/{kb_name}")
@@ -350,6 +355,7 @@ def get_reports(request):
                 'company': report.company,
                 'kb_name': report.kb_name,
                 'report_type': report.report_type,
+                'prompt_type': getattr(report, 'prompt_type'),  # Default to 'prompt_1' if not set
                 'created_at': report.created_at.strftime('%Y-%m-%d %H:%M'),
                 'report_path': report.report_path
             })
@@ -389,12 +395,18 @@ def get_report_content(request, report_path):
         title = ws['A1'].value
         company_name = title.split(' - ')[0] if ' - ' in title else 'Company'
 
-        # Check if this is a QA report by looking at the headers
-        qa_report = False
-        if ws['D3'].value and "AI" in ws['D3'].value:
-            qa_report = True
-        
-        if qa_report:
+        header_d3 = ws['D3'].value or ""
+        header_e3 = ws['E3'].value or ""
+
+        # Your existing detection logic:
+        if "AI" in header_d3 and "Retrieved" in header_e3:
+            report_type = "qa_excel"
+        elif "AI" in header_d3 and "Faithfulness" in header_e3:
+            report_type = "qa_excel_evaluated"
+        else:
+            report_type = "excel"
+            
+        if report_type == "qa_excel_evaluated":
             # Process as a Q&A report
             report_data = {
                 'title': title,
@@ -405,7 +417,7 @@ def get_report_content(request, report_path):
             for row in range(4, ws.max_row + 1):
                 # Check if this is a category row (merged cells)
                 merged_cell_ranges = [str(cell_range) for cell_range in ws.merged_cells.ranges]
-                current_cell = f'A{row}:D{row}'
+                current_cell = f'A{row}:H{row}'
                 
                 if current_cell in merged_cell_ranges:
                     # Start a new category
@@ -417,18 +429,68 @@ def get_report_content(request, report_path):
                     question = ws[f'B{row}'].value
                     analyst_answer = ws[f'C{row}'].value
                     ai_answer = ws[f'D{row}'].value
+                    faithfulness = ws[f'E{row}'].value
+                    relevancy = ws[f'F{row}'].value
+                    context_precision = ws[f'G{row}'].value
+                    answer_correctness = ws[f'H{row}'].value
                     
                     if question and (analyst_answer or ai_answer):
                         report_data['qa_data'][current_category].append({
                             'question': question,
                             'analyst_answer': analyst_answer or "Not provided",
-                            'ai_answer': ai_answer or "Not provided"
+                            'ai_answer': ai_answer or "Not provided",
+                            'faithfulness': faithfulness or "N/A",
+                            'relevancy': relevancy or "N/A",
+                            'context_precision': context_precision or "N/A",
+                            'answer_correctness': answer_correctness or "N/A"
                         })
             
             return JsonResponse({
                 'success': True,
-                'report_data': report_data
+                'report_data': report_data,
+                'report_type': report_type
             })
+        
+        elif report_type == "qa_excel":
+            # Process as a QA Excel report
+            report_data = {
+                'title': title,
+                'qa_data': {}
+            }
+            
+            # Start from row 4 (after headers)
+            current_category = None
+            for row in range(4, ws.max_row + 1):
+                # Check if this is a category row (merged cells)
+                merged_cell_ranges = [str(cell_range) for cell_range in ws.merged_cells.ranges]
+                current_cell = f'A{row}:H{row}'
+                
+                if current_cell in merged_cell_ranges:
+                    # Start a new category
+                    current_category = ws[f'A{row}'].value
+                    report_data['qa_data'][current_category] = []
+                else:
+                    # Regular question row
+                    question_type = ws[f'A{row}'].value
+                    question = ws[f'B{row}'].value
+                    analyst_answer = ws[f'C{row}'].value
+                    ai_answer = ws[f'D{row}'].value
+                    retrieved_answer = ws[f'E{row}'].value
+                    
+                    if question and (analyst_answer or ai_answer):
+                        report_data['qa_data'][current_category].append({
+                            'question': question,
+                            'analyst_answer': analyst_answer or "Not provided",
+                            'ai_answer': ai_answer or "Not provided",
+                            'retrieved_answer': retrieved_answer or "N/A"
+                        })
+            
+            return JsonResponse({
+                'success': True,
+                'report_data': report_data,
+                'report_type': report_type
+            })
+
         else:
             # Initialize data structure
             report_data = {
@@ -478,7 +540,8 @@ def get_report_content(request, report_path):
             
             return JsonResponse({
                 'success': True,
-                'report_data': report_data
+                'report_data': report_data,
+                'report_type': report_type
             })
             
     except Exception as e:
@@ -550,8 +613,9 @@ def generate_qa_report(request):
             company_name = data.get('company')
             kb_name = data.get('kb_name')
             ground_truths_path = data.get('ground_truths_path')
+            prompt_type = data.get('prompt_type')
             
-            logger.info(f"Generating QA report for {company_name}/{kb_name}")
+            logger.info(f"Generating QA report for {company_name}/{kb_name} using {prompt_type}")
             logger.info(f"Ground truths path: {ground_truths_path}")
             
             # Validate input
@@ -582,7 +646,9 @@ def generate_qa_report(request):
             
             # Generate the report using the predefined question set
             logger.info("Retrieved retriever, now generating report...")
-            report_path = generate_qa_report_from_kb(company_name, kb_name, retriever,ground_truths_path)
+            ui_prompt_selection = data.get('prompt_type')
+            backend_prompt_type = "prompt_2" if ui_prompt_selection == "prompt_2" else "prompt_1"
+            report_path = generate_qa_report_from_kb(company_name, kb_name, retriever,ground_truths_path, prompt_type=backend_prompt_type)
             
             if not report_path:
                 logger.error("Failed to generate report, return path was None")
@@ -592,14 +658,30 @@ def generate_qa_report(request):
                 })
                 
             # Success - save to database and return
-            logger.info(f"Report successfully generated at: {report_path}")
-            from .models import Report
-            Report.objects.create(
-                company=company_name,
-                kb_name=kb_name,
-                report_path=report_path,
-                report_type='qa_excel_evaluated' if ground_truths_path else 'qa_excel'
-            )
+            if report_path:
+                logger.info(f"Report successfully generated at: {report_path}")
+                report_db_type = 'qa_excel_evaluated' if ground_truths_path else 'qa_excel'
+                from .models import Report
+                Report.objects.create(
+                    company=company_name,
+                    kb_name=kb_name,
+                    report_path=report_path,
+                    report_type=report_db_type,
+                    prompt_type=prompt_type
+                )
+
+                # Update Session for qa report
+                if 'generated_reports' not in request.session:
+                    request.session['generated_reports'] = []
+                request.session['generated_reports'].append({
+                    'company': company_name,
+                    'kb_name': kb_name,
+                    'report_type': report_db_type, # Use the same report_type
+                    'prompt_type': prompt_type,
+                    'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'report_path': report_path
+                })
+                request.session.modified = True
             
             return JsonResponse({
                 'success': True,
@@ -635,7 +717,8 @@ def get_session_reports(request):
                 'kb_name': report.get('kb_name', ''),
                 'report_type': report.get('report_type', ''),
                 'created_at': report.get('created_at', ''),
-                'report_path': report.get('report_path', '')
+                'report_path': report.get('report_path', ''),
+                'prompt_type': report.get('prompt_type')  # Default to 'prompt_1' if not set,
             })
             
         return JsonResponse({

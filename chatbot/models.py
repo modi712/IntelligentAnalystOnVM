@@ -57,7 +57,8 @@ class Report(models.Model):
     kb_name = models.CharField(max_length=255)
     report_path = models.CharField(max_length=1024)
     report_type = models.CharField(max_length=50, default="excel")  # Values: excel, pdf, pptx, qa_excel
-    created_at = models.DateTimeField(auto_now_add=True)
+    prompt_type = models.CharField(max_length=100, default="prompt_1")  # Values: qa, chat
+    created_at = models.DateTimeField(default=timezone.now)
     
     class Meta:
         ordering = ['-created_at']

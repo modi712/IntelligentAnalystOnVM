@@ -205,11 +205,21 @@
                             <!-- Will be populated with AJAX -->
                         </select>
                     </div>
+                    
+                    <div class="space-y-2">
+                        <label for="prompt-select" class="text-sm font-medium text-gray-700">
+                            Select Prompt
+                        </label>
+                        <select id="prompt-select" class="w-full h-10 rounded-md border border-gray-300 bg-transparent px-3 py-2 text-sm ring-offset-background placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1">
+                            <option value="prompt_1">Prompt 1</option>
+                            <option value="prompt_2">Prompt 2</option>
+                        </select>
+                    </div>
 
                      <button id="generateExcelReport" class="w-full inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-blue-500 text-white shadow hover:bg-blue-500/90 h-10 rounded-md px-8">
                         Generate Report
                     </button> 
-{% comment %} 
+
                     <button id="generateQAReport" class="w-full inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-green-500 text-white shadow hover:bg-green-600 h-10 rounded-md px-8">
                         Generate Q&A Report
                     </button>
@@ -232,7 +242,8 @@
                     <button id="show-gt-format" class="text-xs text-blue-600 hover:text-blue-800">
                         Help with ground truths format
                     </button>
-                </div> {% endcomment %}
+                </div> 
+                
 
                     
                 </div> 
@@ -284,6 +295,7 @@
                                     <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Company</th>
                                     <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Knowledge Base</th>
                                     <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Prompt Type</th>
                                     <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                                     <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                                 </tr>
@@ -335,7 +347,7 @@
     <script>
 
          // Declare global variables at the top
-        let companySelect, useExistingBtn, createNewBtn, existingKbSection, kbSelect, generateReportBtn, userInput, sendMessageBtn, chatMessages,refreshReportsBtn, reportsTableBody, noReportsMessage,generateQAReportBtn;
+        let companySelect, useExistingBtn, createNewBtn, existingKbSection, kbSelect, generateReportBtn, userInput, sendMessageBtn, chatMessages,refreshReportsBtn, reportsTableBody, noReportsMessage,generateQAReportBtn, promptSelect;
 
 
         
@@ -537,6 +549,7 @@
                                 <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${report.company}</td>
                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${report.kb_name}</td>
                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${report.report_type.toUpperCase()}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${(report.prompt_type || 'N/A').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase())}</td> 
                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${report.created_at}</td>
                                 <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                     <button class="text-blue-600 hover:text-blue-900 mr-3 view-report" data-path="${report.report_path}">View</button>
@@ -577,7 +590,7 @@
                                 const reportType = this.closest('tr').querySelector('td:nth-child(3)').textContent.toLowerCase();
 
                                 // If this is a QA report, use a different display mode
-                                if (reportType === 'qa_excel') {
+                                if (reportType === 'qa_excel' || reportType === 'qa_excel_evaluated') {
                                     // Custom display for QA reports
                                     displayQAReport(path);
                                 } else {
@@ -685,13 +698,17 @@
 
                                 // Update table headers for QA format
                                 const reportTable = document.getElementById('report-content-table');
-                                const tableHead = reportTable.querySelector('thead tr');
-                                tableHead.innerHTML = `
-                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">Question Type</th>
-                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4">Question</th>
-                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/3">Analyst's Answer</th>
-                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/3">AI Answer</th>
-                                `;
+                                const tableHead = reportTable.querySelector('thead tr');// Function to load knowledge bases for selected company
+                                // tableHead.innerHTML = `
+                                //     <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Question Type</th>
+                                //     <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Question</th>
+                                //     <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Analyst's Answer</th>
+                                //     <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">AI Answer</th>
+                                //     <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Faithfulness</th>
+                                //     <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Response Relevancy</th>
+                                //     <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Context Precision</th>
+                                //     <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Answer Correctness</th>
+                                // `;
                                 
                                 // Show the report display section
                                 document.getElementById('report-display-section').classList.remove('hidden');
@@ -714,7 +731,18 @@
                                     return response.json();
                                 })
                                 .then(data => {
+                                    const reportType = data.report_type; // Get the report type
+                                    const qaData = data.report_data.qa_data;
                                     if (data.success) {
+                                        if (data.report_type === "qa_excel_evaluated") {
+                                            setupQAEvalHeaders();
+                                        }
+                                        else if (data.report_type === "qa_excel") {
+                                            setupQAHeaders();
+                                        }
+                                        else {
+                                            setupStandardHeaders();
+                                        }
                                         // Clear existing table content
                                         const reportContentBody = document.getElementById('report-content-body');
                                         reportContentBody.innerHTML = '';
@@ -735,12 +763,33 @@
                                             // Add question and answer rows
                                             questions.forEach(item => {
                                                 const questionRow = document.createElement('tr');
+                                                if (reportType === 'qa_excel_evaluated') {
                                                 questionRow.innerHTML = `
                                                     <td class="px-6 py-4 text-sm text-gray-500">${category}</td>
                                                     <td class="px-6 py-4 text-sm text-gray-900">${item.question}</td>
-                                                    <td class="px-6 py-4 text-sm text-gray-600">${formatMarkdown(item.analyst_answer)}</td>
-                                                    <td class="px-6 py-4 text-sm text-gray-600">${formatMarkdown(item.ai_answer)}</td>
+                                                    <td class="px-6 py-4 text-sm text-gray-600">${item.analyst_answer}</td>
+                                                    <td class="px-6 py-4 text-sm text-gray-600 w-1/4">${formatMarkdown(item.ai_answer)}</td>
+                                                    <td class="px-6 py-4 text-sm text-gray-600">${item.faithfulness}</td>
+                                                    <td class="px-6 py-4 text-sm text-gray-600">${item.relevancy}</td>
+                                                    <td class="px-6 py-4 text-sm text-gray-600">${item.context_precision}</td>
+                                                    <td class="px-6 py-4 text-sm text-gray-600">${item.answer_correctness}</td>
                                                 `;
+                                                } else if (reportType === 'qa_excel') {
+                                                    // Render rows for QA Excel reports
+                                                    questionRow.innerHTML = `
+                                                        <td class="px-6 py-4 text-sm text-gray-500">${category}</td>
+                                                        <td class="px-6 py-4 text-sm text-gray-900">${item.question}</td>
+                                                        <td class="px-6 py-4 text-sm text-gray-600">${item.analyst_answer}</td>
+                                                        <td class="px-6 py-4 text-sm text-gray-600 w-1/4">${formatMarkdown(item.ai_answer)}</td>
+                                                    `;
+                                                } else {
+                                                    // Render rows for other report types
+                                                    questionRow.innerHTML = `
+                                                        <td class="px-6 py-4 text-sm text-gray-500">${category}</td>
+                                                        <td class="px-6 py-4 text-sm text-gray-900">${item.question}</td>
+                                                        <td class="px-6 py-4 text-sm text-gray-600">${item.answer || 'N/A'}</td>
+                                                    `;
+                                                }
                                                 reportContentBody.appendChild(questionRow);
                                             });
                                         }
@@ -777,13 +826,49 @@
                         });
                     });
             }
-                
+            function setupQAEvalHeaders() {
+                const headerRow = document.querySelector('#report-content-table thead tr');
+                headerRow.innerHTML = `
+                    <th>Question Type</th>
+                    <th>Question</th>
+                    <th>Analyst's Answer</th>
+                    <th>AI Answer</th>
+                    <th>Faithfulness</th>
+                    <th>Response Relevancy</th>
+                    <th>Context Precision</th>
+                    <th>Answer Correctness</th>
+                `;
+            }
+
+            function setupQAHeaders() {
+                const headerRow = document.querySelector('#report-content-table thead tr');
+                headerRow.innerHTML = `
+                    <th>Question Type</th>
+                    <th>Question</th>
+                    <th>Analyst's Answer</th>
+                    <th>AI Answer</th>
+                `;
+            }
+
+            function setupStandardHeaders() {
+                const headerRow = document.querySelector('#report-content-table thead tr');
+                headerRow.innerHTML = `
+                    <th>Category</th>
+                    <th>Question</th>
+                    <th>Answer</th>
+                `;
+            }    
 
 
             // Add this function to your JavaScript to process markdown text
             function formatMarkdown(text) {
                 if (!text) return '';
-                
+                if (text === null || typeof text === 'undefined') {
+                    return ''; // Or 'N/A' or whatever default you prefer for empty text fields
+                }
+                if (typeof text !== 'string') {
+                    text = String(text); // Convert numbers or other types to string
+                }
                 // Process bullet points
                 text = text.replace(/•\s(.*?)(?=(\n•|\n\n|$))/gs, '<li>$1</li>');
                 text = text.replace(/\*\s(.*?)(?=(\n\*|\n\n|$))/gs, '<li>$1</li>');
@@ -814,6 +899,7 @@
             function generateQAReport() {
                 const company = companySelect.value;
                 const kbSelect = document.getElementById('kb-select');
+                const selectedPromptType = promptSelect.value;
                 
                 if (!company) {
                     showAlert('Please select a company first.', 'error');
@@ -841,7 +927,8 @@
                         body: JSON.stringify({
                             company: company,
                             kb_name: kbSelect.options[kbSelect.selectedIndex].text,
-                            ground_truths_path: groundTruthsPath
+                            ground_truths_path: groundTruthsPath,
+                            prompt_type: selectedPromptType
                         })
                     })
                     .then(response => response.json())
@@ -855,7 +942,7 @@
                             const downloadUrl = `/download-report/${encodeURIComponent(downloadPath)}/`;
                             
                             // Create and trigger download
-                            window.location.href = downloadUrl;
+                            // window.location.href = downloadUrl;
                             
                             // Update the reports list after a delay
                             setTimeout(() => {
@@ -930,7 +1017,7 @@
             reportsTableBody = document.getElementById('reports-table-body');
             noReportsMessage = document.getElementById('no-reports-message');
             generateQAReportBtn = document.getElementById('generateQAReport');
-
+            promptSelect = document.getElementById('prompt-select');
 
 
              // Fix for the ground truths format help button
@@ -1077,6 +1164,7 @@
             generateReportBtn.addEventListener('click', function() {
                 const company = document.getElementById('company').value;
                 const kbSelect = document.getElementById('kb-select');
+                const selectedPromptType = promptSelect.value;
                 
                 if (!company) {
                     showAlert('Please select a company first.', 'error');
@@ -1100,7 +1188,8 @@
                     body: JSON.stringify({
                         company: company,
                         kb_name: kbSelect.options[kbSelect.selectedIndex].text,
-                        report_type: 'excel'
+                        report_type: 'excel',
+                        prompt_type: selectedPromptType
                     })
                 })
                 .then(response => response.json())
